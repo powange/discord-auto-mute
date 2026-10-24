@@ -37,17 +37,25 @@ p { margin: 0; }
 .container { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
 
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; text-decoration: none; white-space: nowrap; }
 .brand img { width: 32px; height: 32px; }
 .bar-links { display: flex; align-items: center; gap: 8px; }
 .bar-links a, .lang-switch button { color: #fff; text-decoration: none; font: inherit; font-size: 0.9rem;
   border: 1px solid rgba(255,255,255,0.35); background: transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
 .lang-switch { display: flex; gap: 4px; }
+.bar-links a.star { display: inline-flex; align-items: center; gap: 6px; }
+.js-stars:not(:empty) { font-variant-numeric: tabular-nums; background: rgba(255,255,255,0.18); border-radius: 999px; padding: 0 8px; }
+.support { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.support p { color: var(--muted); max-width: 36em; }
+.star-big { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-fg); text-decoration: none;
+  font-weight: 700; padding: 12px 24px; border-radius: 12px; }
+.star-big:hover { filter: brightness(1.08); }
+.star-big .js-stars:not(:empty) { background: rgba(255,255,255,0.22); }
 .lang-switch button[aria-pressed="true"] { background: #fff; color: var(--hero-1); border-color: #fff; }
 
 .hero { background: linear-gradient(135deg, var(--hero-1), var(--hero-2)); color: #fff; padding-bottom: 72px; }
 .hero-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding-top: 40px; }
-@media (max-width: 820px) { .hero-body { grid-template-columns: minmax(0, 1fr); gap: 32px; } .bar-links a.hide-small { display: none; } }
+@media (max-width: 820px) { .hero-body { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hide-small { display: none; } }
 .hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.01em; }
 .hero .lede { margin-top: 16px; font-size: 1.15rem; color: rgba(255,255,255,0.85); max-width: 34em; }
 .cta { margin-top: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
@@ -114,7 +122,7 @@ footer .container { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-conte
     <nav class="bar">
       <a class="brand" href="#"><img src="img/icon.png" alt="">Discord Auto-Mute</a>
       <div class="bar-links">
-        <a class="hide-small" href="https://github.com/powange/discord-auto-mute">GitHub</a>
+        <a class="star" href="https://github.com/powange/discord-auto-mute" title="Star on GitHub"><span aria-hidden="true">★</span> <span class="hide-small"><span lang="en">Star</span><span lang="fr">Étoile</span></span> <span class="js-stars"></span></a>
         <div class="lang-switch" role="group" aria-label="Language">
           <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
           <button type="button" data-set-lang="fr" aria-pressed="false">FR</button>
@@ -411,6 +419,15 @@ footer .container { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-conte
       </div>
     </div>
   </section>
+  <section>
+    <div class="container support">
+      <h2 lang="en">Like it? Give it a star</h2>
+      <h2 lang="fr">Ça vous plaît ? Mettez une étoile</h2>
+      <p lang="en">A star on GitHub costs nothing and helps other players find the project. You need a free GitHub account, then click the ★ Star button at the top of the project page.</p>
+      <p lang="fr">Une étoile sur GitHub ne coûte rien et aide d'autres joueurs à trouver le projet. Il faut un compte GitHub gratuit, puis cliquer sur le bouton ★ Star en haut de la page du projet.</p>
+      <a class="star-big" href="https://github.com/powange/discord-auto-mute"><span aria-hidden="true">★</span> <span lang="en">Star on GitHub</span><span lang="fr">Mettre une étoile sur GitHub</span> <span class="js-stars"></span></a>
+    </div>
+  </section>
 </main>
 
 <footer>
@@ -434,6 +451,15 @@ footer .container { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-conte
   try { saved = localStorage.getItem("lang"); } catch {}
   set(saved || ((navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en"));
   for (const b of document.querySelectorAll("[data-set-lang]")) b.addEventListener("click", () => set(b.dataset.setLang));
+
+  // Star count next to the star buttons; nothing shown if GitHub does not answer.
+  fetch("https://api.github.com/repos/powange/discord-auto-mute", { cache: "no-cache" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((repo) => {
+      if (!repo || typeof repo.stargazers_count !== "number") return;
+      for (const el of document.querySelectorAll(".js-stars")) el.textContent = repo.stargazers_count;
+    })
+    .catch(() => {});
 })();
 </script>
 </body>
