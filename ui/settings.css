@@ -57,6 +57,8 @@ section p { margin: 0; }
 .chip.static { padding-right: 10px; }
 .key { font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace; font-size: 13px; }
 .unverified { color: var(--warn); }
+.notices { display: flex; flex-direction: column; gap: 4px; }
+.notice { color: var(--warn); background: var(--banner); border-radius: 6px; padding: 6px 10px; }
 .spacer { flex: 1; }
 .actions { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 

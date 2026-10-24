@@ -45,7 +45,14 @@ const KEYS: &[(&str, u16, u16)] = &[
 ];
 
 /// (code, Linux evdev button code). Windows reports them as mouse messages.
-const MOUSE: &[(&str, u16)] = &[("MouseMiddle", 0x112), ("Mouse4", 0x113), ("Mouse5", 0x114)];
+/// BTN_SIDE/BTN_EXTRA, or BTN_BACK/BTN_FORWARD on some mice.
+const MOUSE: &[(&str, u16)] = &[
+    ("MouseMiddle", 0x112),
+    ("Mouse4", 0x113),
+    ("Mouse5", 0x114),
+    ("Mouse4", 0x116),
+    ("Mouse5", 0x115),
+];
 
 pub fn is_known(code: &str) -> bool {
     KEYS.iter().any(|k| k.0 == code) || MOUSE.iter().any(|m| m.0 == code)
@@ -53,6 +60,14 @@ pub fn is_known(code: &str) -> bool {
 
 pub fn is_mouse(code: &str) -> bool {
     MOUSE.iter().any(|m| m.0 == code)
+}
+
+/// Ctrl, Shift, Alt and the Windows/Super keys.
+pub fn is_modifier(code: &str) -> bool {
+    ["Control", "Shift", "Alt", "Meta"].iter().any(|m| {
+        code.strip_prefix(m)
+            .is_some_and(|side| side == "Left" || side == "Right")
+    })
 }
 
 /// From a Windows low-level hook: scan code and LLKHF_EXTENDED.

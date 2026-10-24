@@ -21,6 +21,10 @@ use crate::host::{secrets, show_notification, Event};
 const RETRY_MIN: Duration = Duration::from_secs(2);
 const RETRY_MAX: Duration = Duration::from_secs(30);
 const BROWSER_TIMEOUT: Duration = Duration::from_secs(300);
+/// A mute change waits this long for Discord: the keys wait behind it.
+const SET_TIMEOUT: Duration = Duration::from_millis(1500);
+/// Authorization prompts shown without the user asking (network errors retry).
+const AUTO_PROMPTS: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "state", content = "detail", rename_all = "snake_case")]
@@ -54,6 +58,8 @@ struct Inner {
     restart: Notify,
     /// The authorization prompt may be shown (not again after a refusal).
     may_prompt: Cell<bool>,
+    /// Prompts shown since the user last changed the settings or asked to authorize.
+    prompts: Cell<u32>,
     force_refresh: Cell<bool>,
     auth_failures: Cell<u32>,
     cancel_browser: watch::Sender<bool>,
@@ -77,6 +83,7 @@ impl Client {
             ipc: RefCell::default(),
             restart: Notify::new(),
             may_prompt: Cell::new(true),
+            prompts: Cell::new(0),
             force_refresh: Cell::new(false),
             auth_failures: Cell::new(0),
             cancel_browser: watch::channel(true).0,
@@ -89,6 +96,7 @@ impl Client {
         let old = self.0.settings.replace(settings.clone());
         if old.method != settings.method || old.rpc != settings.rpc || credentials_changed {
             self.0.may_prompt.set(true);
+            self.0.prompts.set(0);
             self.0.cancel_browser.send_replace(true);
             self.0.restart.notify_one();
         }
@@ -97,18 +105,22 @@ impl Client {
     pub fn reauthorize(&self) {
         self.tokens().clear();
         self.0.may_prompt.set(true);
+        self.0.prompts.set(0);
         self.0.cancel_browser.send_replace(true);
         self.0.restart.notify_one();
     }
 
-    pub async fn set_mute(&self, mute: bool) {
-        let Some(ipc) = self.0.ipc.borrow().clone() else {
-            log::warn!("Discord not connected: microphone not changed");
-            return;
-        };
-        if let Err(e) = Rpc(&*ipc).set_voice_settings(json!({ "mute": mute })).await {
-            log::warn!("Cannot change the Discord microphone: {e}");
-        }
+    pub async fn set_mute(&self, mute: bool) -> Result<(), String> {
+        let ipc = self.0.ipc.borrow().clone().ok_or("Discord not connected")?;
+        ipc.command(
+            "SET_VOICE_SETTINGS",
+            json!({ "mute": mute }),
+            None,
+            SET_TIMEOUT,
+        )
+        .await
+        .map(drop)
+        .map_err(|e| e.to_string())
     }
 
     fn state(&self, state: DiscordState) {
@@ -249,13 +261,14 @@ impl Client {
             }
             Err(e) => return End::Failed(e.to_string()),
         }
+        // Subscribed first: a change between the two calls is not lost.
+        if let Err(e) = rpc.subscribe("VOICE_SETTINGS_UPDATE").await {
+            return End::Failed(e.to_string());
+        }
         let voice = match rpc.get_voice_settings().await {
             Ok(voice) => voice,
             Err(e) => return End::Failed(e.to_string()),
         };
-        if let Err(e) = rpc.subscribe("VOICE_SETTINGS_UPDATE").await {
-            return End::Failed(e.to_string());
-        }
         let _ = self
             .0
             .events
@@ -278,10 +291,11 @@ impl Client {
         let needs = |reason: &str| End::NeedsUser(DiscordState::NeedsAuthorization(reason.into()));
         if !self.0.may_prompt.get() {
             return Err(needs(
-                "Authorization required: use 'Authorize Discord' in the tray menu",
+                "Authorization required: use 'Authorize Discord again' in the tray menu",
             ));
         }
         self.0.may_prompt.set(false);
+        self.0.prompts.set(self.0.prompts.get() + 1);
         self.state(DiscordState::Authorizing);
         show_notification(
             &self.0.app,
@@ -289,8 +303,9 @@ impl Client {
             &tr("Approve Discord Auto-Mute in the Discord window.", &[]),
         );
         let redirect = settings.rpc.redirect_uri();
+        // Not the user's answer: prompt again, a limited number of times.
         let retry_later = |reason: String| {
-            self.0.may_prompt.set(true);
+            self.0.may_prompt.set(self.0.prompts.get() < AUTO_PROMPTS);
             End::Failed(reason)
         };
         match Rpc(ipc).authorize(client_id, &SCOPES).await {

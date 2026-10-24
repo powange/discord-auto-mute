@@ -22,10 +22,11 @@ pub enum MuteMethod {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShortcutAction {
-    /// "Toggle Mute": tapped once to mute, once to unmute.
-    #[default]
+    /// "Toggle Mute": tapped once to mute, once to unmute. Discord's real state is
+    /// unknown: a missed tap inverts it, so it is not the default.
     ToggleMute,
     /// "Push to Mute": held down while Discord has to stay muted.
+    #[default]
     PushToMute,
 }
 
@@ -36,6 +37,8 @@ pub struct Shortcut {
     /// avoids side effects in the game.
     pub keys: Vec<String>,
     pub action: ShortcutAction,
+    /// The user confirmed the keybind exists in Discord (until then, a warning shows).
+    pub set_in_discord: bool,
 }
 
 impl Default for Shortcut {
@@ -43,6 +46,7 @@ impl Default for Shortcut {
         Shortcut {
             keys: vec!["F13".into()],
             action: ShortcutAction::default(),
+            set_in_discord: false,
         }
     }
 }
@@ -146,12 +150,23 @@ pub enum ProfileError {
 impl Settings {
     /// A missing or unreadable file gives the defaults (an unreadable one is kept aside).
     pub fn load(path: &Path) -> Settings {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
-            Err(e) => {
-                log::warn!("Cannot read {}: {e}", path.display());
-                return Settings::default();
+        // An antivirus or a sync tool may hold the file for a moment.
+        let mut attempt = 0;
+        let text = loop {
+            match std::fs::read_to_string(path) {
+                Ok(text) => break text,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
+                Err(e) if attempt < 10 => {
+                    log::warn!("Cannot read {} ({e}), retrying", path.display());
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
+                Err(e) => {
+                    // Kept aside: the defaults must not overwrite the profiles.
+                    log::error!("Cannot read {}: {e}", path.display());
+                    let _ = std::fs::copy(path, path.with_extension("json.unreadable"));
+                    return Settings::default();
+                }
             }
         };
         match serde_json::from_str::<Settings>(&text) {
@@ -251,7 +266,9 @@ impl Settings {
             return Err(ProfileError::EmptyName);
         }
         let preset = self.profiles[i].preset.clone(); // not editable from the window
-        let enabled = edited.enabled;
+        let usable = |p: &Profile| !p.binding.executables.is_empty() && !p.binding.keys.is_empty();
+        // A new profile turns on once it has a game and a key: the user expects it to work.
+        let enabled = edited.enabled || (!usable(&self.profiles[i]) && usable(&edited));
         self.profiles[i] = Profile {
             name,
             preset,
@@ -386,10 +403,15 @@ mod tests {
         p.name = "".into();
         assert_eq!(s.update(p.clone()), Err(ProfileError::EmptyName));
         p.name = "Renamed".into();
-        p.enabled = true;
         p.binding.executables = vec!["game.exe".into()];
+        s.update(p.clone()).unwrap();
+        assert!(!s.profile(&id).unwrap().enabled); // no key yet
+        p.binding.keys = vec!["KeyT".into()];
+        s.update(p.clone()).unwrap();
+        assert!(s.profile(&id).unwrap().enabled); // complete: turned on
+        p.enabled = false;
         s.update(p).unwrap();
-        assert!(s.profile(&id).unwrap().enabled);
+        assert!(!s.profile(&id).unwrap().enabled); // the user's choice afterwards
         assert_eq!(s.reset_to_preset(&id), Err(ProfileError::NotFromPreset));
     }
 

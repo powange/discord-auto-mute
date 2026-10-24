@@ -73,6 +73,9 @@ Même organisation que `goxlr-discord-sync` :
   - en mode **maintenu** : Discord est réactivé immédiatement ;
   - en mode **bascule** : Discord est réactivé (retour à l'état d'avant). En revenant dans le jeu, l'utilisateur doit réappuyer sur la touche.
 - Règle générale : l'application ne laisse **jamais** l'utilisateur muté sur Discord sans qu'il le sache.
+- L'application ne réactive que ce qu'elle a muté. Avec la méthode Application, elle reconnaît les confirmations de ses propres commandes (un retard n'est pas pris pour une action de l'utilisateur) et rejoue une réactivation qui a échoué dès que Discord répond.
+- Si l'application s'arrête alors que Discord est muté (crash, fin de tâche), `state.json` le garde en mémoire et Discord est réactivé au démarrage suivant.
+- Méthode Raccourci : « Appuyer pour rendre muet » par défaut (suit la touche, ne peut pas s'inverser) ; « Activer/désactiver le micro » reste possible. Un bandeau rappelle de créer le raccourci dans Discord tant que l'utilisateur ne l'a pas confirmé, et un bouton « Tester » mute Discord 3 s.
 
 ## Barre système
 

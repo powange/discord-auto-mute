@@ -3,7 +3,7 @@
 use dam_core::config::{log_dir, MuteMethod};
 use dam_core::i18n::tr;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
@@ -11,6 +11,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::discord::DiscordState;
 use crate::host::{Event, Host, Shared};
+use crate::settings::Store;
 
 const TRAY: &str = "main";
 pub const REPO_URL: &str = "https://github.com/powange/discord-auto-mute";
@@ -37,7 +38,12 @@ fn problem(shared: &Shared) -> Option<String> {
         });
     }
     if shared.method != MuteMethod::Rpc {
-        return None;
+        return (!shared.shortcut_set).then(|| {
+            tr(
+                "Create the shortcut in Discord (Settings › Discord tab)",
+                &[],
+            )
+        });
     }
     match &shared.discord {
         DiscordState::Connected | DiscordState::Shortcut => None,
@@ -88,7 +94,7 @@ fn summary(shared: &Shared) -> String {
         Some((_, name)) if status.muting => {
             tr("{name}: Discord microphone muted", &[("name", name)])
         }
-        Some((_, name)) => tr("Profile: {name}", &[("name", name)]),
+        Some((_, name)) => tr("{name}: ready", &[("name", name)]),
     }
 }
 
@@ -113,10 +119,12 @@ fn build_menu(app: &AppHandle, shared: &Shared) -> tauri::Result<Menu<tauri::Wry
         menu.append(&item("problem", problem, false)?)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    if shared.status.profile.is_some() {
+    // The last game, not the foreground one: opening this menu brings the taskbar
+    // to the foreground.
+    if let Some((_, name)) = disable_target(app, shared) {
         menu.append(&item(
             "disable_profile",
-            tr("Disable this profile", &[]),
+            tr("Disable the profile “{name}”", &[("name", &name)]),
             true,
         )?)?;
     }
@@ -124,14 +132,6 @@ fn build_menu(app: &AppHandle, shared: &Shared) -> tauri::Result<Menu<tauri::Wry
     menu.append(&item("settings", tr("Settings…", &[]), true)?)?;
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
     menu.append(&check("autostart", autostart_label(), autostart)?)?;
-    if shared.method == MuteMethod::Rpc {
-        menu.append(&item(
-            "reauthorize",
-            tr("Authorize Discord again", &[]),
-            true,
-        )?)?;
-    }
-    menu.append(&item("log", tr("Open log", &[]), true)?)?;
     if let Some(version) = &shared.update {
         menu.append(&item(
             "install_update",
@@ -139,8 +139,17 @@ fn build_menu(app: &AppHandle, shared: &Shared) -> tauri::Result<Menu<tauri::Wry
             true,
         )?)?;
     }
-    menu.append(&item("check_updates", tr("Check for updates", &[]), true)?)?;
-    menu.append(&item(
+    let more = Submenu::new(app, tr("More", &[]), true)?;
+    if shared.method == MuteMethod::Rpc {
+        more.append(&item(
+            "reauthorize",
+            tr("Authorize Discord again", &[]),
+            true,
+        )?)?;
+    }
+    more.append(&item("check_updates", tr("Check for updates", &[]), true)?)?;
+    more.append(&item("log", tr("Open log folder", &[]), true)?)?;
+    more.append(&item(
         "about",
         tr(
             "About (v{version})",
@@ -148,9 +157,17 @@ fn build_menu(app: &AppHandle, shared: &Shared) -> tauri::Result<Menu<tauri::Wry
         ),
         true,
     )?)?;
+    menu.append(&more)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&item("quit", tr("Quit", &[]), true)?)?;
     Ok(menu)
+}
+
+/// The profile "Disable" acts on: the last active one, while it is enabled.
+fn disable_target(app: &AppHandle, shared: &Shared) -> Option<(String, String)> {
+    let (id, name) = shared.last_profile.clone()?;
+    let enabled = app.state::<Store>().get().profile(&id)?.enabled;
+    enabled.then_some((id, name))
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
@@ -190,9 +207,10 @@ pub fn refresh(app: &AppHandle) {
     // Rebuild only what changed: the menu flickers on some desktops.
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
     let signature = format!(
-        "{tooltip}|{:?}|{autostart}|{:?}|{}",
+        "{tooltip}|{:?}|{autostart}|{:?}|{:?}|{}",
         shared.method,
         shared.update,
+        disable_target(app, &shared),
         dam_core::i18n::current()
     );
     static LAST: std::sync::Mutex<(String, Option<u8>)> =
@@ -220,7 +238,7 @@ fn on_menu(app: &AppHandle, id: &str) {
     let host = app.state::<Host>();
     match id {
         "disable_profile" => {
-            if let Some((profile, _)) = host.snapshot().status.profile {
+            if let Some((profile, _)) = disable_target(app, &host.snapshot()) {
                 if let Err(e) = crate::settings::set_profile_enabled(app, &profile, false) {
                     log::error!("Cannot disable the profile: {e}");
                 }
@@ -246,7 +264,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "log" => {
             let _ = app
                 .opener()
-                .open_path(log_dir().join("app.log").to_string_lossy(), None::<&str>);
+                .open_path(log_dir().to_string_lossy(), None::<&str>);
         }
         "about" => {
             let _ = app.opener().open_url(REPO_URL, None::<&str>);

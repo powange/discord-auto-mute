@@ -11,9 +11,9 @@ A tray application for Windows and Linux: each game has a profile with its voice
   - **Toggle**: each press mutes or unmutes Discord.
 - 50 presets for the most played multiplayer games with voice chat. Every field stays editable, and "Restore the defaults" brings the preset back.
 - A profile only applies while its game is in the foreground. Leaving the game, pausing or quitting gives the microphone back.
-- The application only unmutes what it muted: a mute you set yourself in Discord is left alone.
+- The application only unmutes what it muted: with the Application method or the default "Push to Mute" keybind, a mute you set yourself in Discord is left alone. If the application stops while Discord is muted (crash, forced exit), Discord is unmuted at the next start.
 - Two ways to mute Discord:
-  - **Keyboard shortcut**: a Discord keybind ("Toggle Mute" or "Push to Mute"), F13 by default, a key no game uses;
+  - **Keyboard shortcut**: a Discord keybind, "Push to Mute" (recommended) or "Toggle Mute", F13 by default, a key no game uses. The application types it for you while Discord records it;
   - **Application**: Discord's local RPC API, with your own application from the [Discord Developer Portal](https://discord.com/developers/applications).
 - English and French, the system language by default.
 

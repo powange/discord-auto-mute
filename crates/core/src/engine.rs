@@ -7,9 +7,15 @@
 //! - Leaving the game, pausing or changing the profile restores Discord.
 //! - The engine only unmutes what it muted: if Discord was already muted, or the
 //!   user unmutes it by hand, it leaves the microphone alone.
+//! - An unmute that fails (Discord closed or not answering) is retried as soon as
+//!   Discord reports its microphone muted again.
+//!
+//! When Discord's state is readable (RPC method), Discord confirms each change with
+//! an update: the engine recognises the confirmations of its own commands, so a late
+//! one is never taken for a change made by the user.
 
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use crate::profile::{Mode, Profile};
 
@@ -21,8 +27,11 @@ pub enum Input {
     },
     /// File name of the foreground process, None when unknown (desktop, lock screen…).
     Foreground(Option<String>),
-    /// Discord's microphone state, when the mute method can read it.
+    /// Discord's microphone state, when the mute method can read it
+    /// (None: unknown, e.g. Discord disconnected).
     DiscordMuted(Option<bool>),
+    /// A mute change returned by `handle` could not be applied.
+    Failed(bool),
     Paused(bool),
     Profiles(Vec<Profile>),
 }
@@ -52,6 +61,8 @@ pub struct Engine {
     engaged: bool,
     /// The engine muted Discord and has to unmute it.
     ours: bool,
+    /// Changes sent whose confirmation by Discord has not arrived yet.
+    pending: VecDeque<bool>,
 }
 
 impl Engine {
@@ -59,6 +70,15 @@ impl Engine {
         Engine {
             profiles,
             ..Engine::default()
+        }
+    }
+
+    /// After a crash or a forced exit while Discord was muted by the application:
+    /// Discord is unmuted as soon as it reports its microphone muted.
+    pub fn recovering(profiles: Vec<Profile>) -> Engine {
+        Engine {
+            ours: true,
+            ..Engine::new(profiles)
         }
     }
 
@@ -70,13 +90,20 @@ impl Engine {
                 self.foreground = exe;
                 self.select_profile();
             }
-            Input::DiscordMuted(muted) => {
-                self.discord_muted = muted;
-                if muted == Some(false) && self.ours {
-                    // Unmuted by hand: give the microphone back to the user.
-                    self.ours = false;
-                    self.toggled = false;
+            Input::DiscordMuted(muted) => return self.discord_update(muted),
+            Input::Failed(mute) => {
+                if let Some(at) = self.pending.iter().rposition(|p| *p == mute) {
+                    self.pending.remove(at);
                 }
+                if mute {
+                    self.ours = false;
+                    self.discord_muted = self.discord_muted.map(|_| false);
+                } else {
+                    // Still muted by us: retried when Discord answers again.
+                    self.ours = true;
+                    self.discord_muted = self.discord_muted.map(|_| true);
+                }
+                return None;
             }
             Input::Paused(paused) => {
                 self.paused = paused;
@@ -99,7 +126,11 @@ impl Engine {
     pub fn release(&mut self) -> Option<bool> {
         self.reset();
         self.engaged = false;
-        std::mem::take(&mut self.ours).then_some(false)
+        if self.ours {
+            self.send(false)
+        } else {
+            None
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -111,6 +142,40 @@ impl Engine {
             muting: self.ours,
             discord_muted: self.discord_muted,
         }
+    }
+
+    fn discord_update(&mut self, muted: Option<bool>) -> Option<bool> {
+        let Some(muted) = muted else {
+            self.discord_muted = None;
+            self.pending.clear(); // their confirmations will never come
+            return None;
+        };
+        if let Some(at) = self.pending.iter().position(|p| *p == muted) {
+            self.pending.drain(..=at); // ours (Discord may skip intermediate states)
+                                       // Commands still on their way decide the state.
+            self.discord_muted = Some(self.pending.back().copied().unwrap_or(muted));
+            return None;
+        }
+        self.discord_muted = Some(muted);
+        if !muted && self.ours {
+            // Unmuted by hand: give the microphone back to the user.
+            self.ours = false;
+            self.toggled = false;
+        }
+        if muted && self.ours && !self.engaged {
+            return self.send(false); // a lost unmute, or Discord restarted muted
+        }
+        self.apply()
+    }
+
+    /// Records a change sent to Discord.
+    fn send(&mut self, mute: bool) -> Option<bool> {
+        self.ours = mute;
+        if self.discord_muted.is_some() {
+            self.discord_muted = Some(mute);
+            self.pending.push_back(mute);
+        }
+        Some(mute)
     }
 
     fn key(&mut self, code: String, down: bool) {
@@ -172,14 +237,13 @@ impl Engine {
         }
         self.engaged = wanted;
         if wanted {
-            if self.discord_muted == Some(true) {
-                return None; // already muted by the user: not ours to undo
+            if self.ours || self.discord_muted == Some(true) {
+                // Already muted, by the user (not ours to undo) or by a failed unmute.
+                return None;
             }
-            self.ours = true;
-            Some(true)
+            self.send(true)
         } else if self.ours {
-            self.ours = false;
-            Some(false)
+            self.send(false)
         } else {
             None
         }
@@ -353,6 +417,58 @@ mod tests {
         e.handle(key("KeyV", false));
         assert_eq!(e.handle(Input::DiscordMuted(Some(false))), None);
         assert_eq!(e.handle(key("KeyV", true)), Some(true)); // next press mutes again
+    }
+
+    #[test]
+    fn late_confirmations_are_not_taken_for_the_user() {
+        let mut e = Engine::new(vec![profile("a", "a.exe", &["KeyT"], Mode::Hold)]);
+        e.handle(Input::DiscordMuted(Some(false)));
+        e.handle(fg("a.exe"));
+        // Quick presses: the confirmations arrive after the next presses.
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+        assert_eq!(e.handle(key("KeyT", false)), Some(false));
+        assert_eq!(e.handle(Input::DiscordMuted(Some(true))), None);
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+        assert_eq!(e.handle(Input::DiscordMuted(Some(false))), None);
+        assert!(e.status().muting); // not "unmuted by the user"
+        assert_eq!(e.handle(Input::DiscordMuted(Some(true))), None);
+        assert_eq!(e.handle(key("KeyT", false)), Some(false));
+        // Discord may report only the last state.
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+        assert_eq!(e.handle(key("KeyT", false)), Some(false));
+        assert_eq!(e.handle(Input::DiscordMuted(Some(false))), None);
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+    }
+
+    #[test]
+    fn failed_unmute_is_retried_when_discord_is_back() {
+        let mut e = Engine::new(vec![profile("a", "a.exe", &["KeyT"], Mode::Hold)]);
+        e.handle(Input::DiscordMuted(Some(false)));
+        e.handle(fg("a.exe"));
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+        e.handle(Input::DiscordMuted(Some(true)));
+        assert_eq!(e.handle(Input::DiscordMuted(None)), None); // Discord restarts
+        assert_eq!(e.handle(key("KeyT", false)), Some(false));
+        e.handle(Input::Failed(false));
+        assert!(e.status().muting);
+        // Reconnected, still muted: unmuted now.
+        assert_eq!(e.handle(Input::DiscordMuted(Some(true))), Some(false));
+        assert_eq!(e.handle(Input::DiscordMuted(Some(false))), None);
+        assert!(!e.status().muting);
+        // A failed mute leaves nothing to undo.
+        assert_eq!(e.handle(key("KeyT", true)), Some(true));
+        e.handle(Input::Failed(true));
+        assert_eq!(e.handle(key("KeyT", false)), None);
+    }
+
+    #[test]
+    fn recovery_after_a_crash() {
+        let mut e = Engine::recovering(vec![profile("a", "a.exe", &["KeyT"], Mode::Hold)]);
+        assert_eq!(e.handle(Input::DiscordMuted(Some(true))), Some(false));
+        let mut e = Engine::recovering(vec![]);
+        assert_eq!(e.handle(Input::DiscordMuted(Some(false))), None); // already fine
+        assert!(!e.status().muting);
+        assert_eq!(e.release(), None);
     }
 
     #[test]

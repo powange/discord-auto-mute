@@ -2,9 +2,13 @@
 //! live in `Store`; every change is saved, then sent to the engine.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
-use dam_core::config::{log_dir, settings_file, MuteMethod, ProfileError, Settings, Shortcut};
+use dam_core::config::{
+    log_dir, settings_file, MuteMethod, ProfileError, Settings, Shortcut, ShortcutAction,
+};
 use dam_core::engine::Status;
 use dam_core::i18n::{self, tr};
 use dam_core::keys;
@@ -18,7 +22,32 @@ use tauri_plugin_opener::OpenerExt;
 use crate::discord::DiscordState;
 use crate::host::{secrets, Event, Host};
 
-pub struct Store(pub Mutex<Settings>);
+/// The settings in use, and a revision the window compares to notice changes made
+/// elsewhere (tray menu).
+pub struct Store {
+    settings: Mutex<Settings>,
+    revision: AtomicU64,
+}
+
+impl Store {
+    pub fn new(settings: Settings) -> Store {
+        Store {
+            settings: Mutex::new(settings),
+            revision: AtomicU64::new(1),
+        }
+    }
+
+    pub fn get(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    fn revision(&self) -> u64 {
+        self.revision.load(Ordering::SeqCst)
+    }
+}
+
+/// How long the user has to click into Discord's keybind field.
+const SEND_DELAY: Duration = Duration::from_secs(5);
 
 pub fn open(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
@@ -55,11 +84,12 @@ fn modify(
     change: impl FnOnce(&mut Settings) -> Result<bool, String>,
 ) -> Result<Settings, String> {
     let store = app.state::<Store>();
-    let mut current = store.0.lock().unwrap();
+    let mut current = store.settings.lock().unwrap();
     let mut settings = current.clone();
     let credentials_changed = change(&mut settings)?;
     settings.save(&settings_file()).map_err(save_error)?;
     *current = settings.clone();
+    store.revision.fetch_add(1, Ordering::SeqCst);
     drop(current);
     app.state::<Host>().send(Event::Settings {
         settings: settings.clone(),
@@ -88,6 +118,7 @@ pub fn set_profile_enabled(app: &AppHandle, id: &str, enabled: bool) -> Result<(
 #[derive(Serialize)]
 pub struct SettingsData {
     settings: Settings,
+    revision: u64,
     client_secret: String,
     redirect_uri: String,
     autostart: bool,
@@ -102,8 +133,12 @@ pub struct SettingsData {
 
 #[tauri::command]
 pub fn get_settings(app: AppHandle, store: tauri::State<'_, Store>) -> SettingsData {
-    let settings = store.0.lock().unwrap().clone();
+    let (settings, revision) = {
+        let settings = store.settings.lock().unwrap();
+        (settings.clone(), store.revision())
+    };
     SettingsData {
+        revision,
         redirect_uri: settings.rpc.redirect_uri(),
         settings,
         client_secret: secrets().client_secret(),
@@ -120,6 +155,8 @@ pub fn get_settings(app: AppHandle, store: tauri::State<'_, Store>) -> SettingsD
 /// Live state, polled by the window.
 #[derive(Serialize)]
 pub struct StateData {
+    /// Changes when the settings change (the window reloads them).
+    revision: u64,
     status: Status,
     discord: DiscordState,
     input_error: Option<String>,
@@ -127,9 +164,10 @@ pub struct StateData {
 }
 
 #[tauri::command]
-pub fn get_state(host: tauri::State<'_, Host>) -> StateData {
+pub fn get_state(host: tauri::State<'_, Host>, store: tauri::State<'_, Store>) -> StateData {
     let shared = host.snapshot();
     StateData {
+        revision: store.revision(),
         status: shared.status,
         discord: shared.discord,
         input_error: shared.input_error,
@@ -159,7 +197,7 @@ fn clean(mut profile: Profile) -> Result<Profile, String> {
     }
     profile.binding.executables = executables;
     if let Some(key) = profile.binding.keys.iter().find(|k| !keys::is_known(k)) {
-        return Err(tr("Unknown key: {key}", &[("key", key)]));
+        return Err(tr("This key is not supported: {key}", &[("key", key)]));
     }
     let mut seen = Vec::new();
     profile.binding.keys.retain(|k| {
@@ -193,23 +231,38 @@ pub struct GeneralPayload {
     shortcut: Shortcut,
     client_id: String,
     client_secret: String,
-    oauth_port: u16,
+    /// u32: an out-of-range port gets a readable error rather than a parse error.
+    oauth_port: u32,
     autostart: bool,
     check_updates: bool,
+}
+
+/// The keys the application may type for Discord.
+fn check_shortcut(codes: &[String], action: ShortcutAction) -> Result<(), String> {
+    if codes.is_empty() {
+        return Err(tr("Choose the shortcut set in Discord.", &[]));
+    }
+    if let Some(key) = codes
+        .iter()
+        .find(|k| !keys::is_known(k) || keys::is_mouse(k))
+    {
+        return Err(tr("This key cannot be sent: {key}", &[("key", key)]));
+    }
+    // Held for the whole sentence: a held Ctrl, Shift or Alt would reach the game.
+    if action == ShortcutAction::PushToMute && codes.iter().any(|k| keys::is_modifier(k)) {
+        return Err(tr(
+            "With Push to Mute, use a single key without Ctrl, Shift or Alt (F13 to F24).",
+            &[],
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn save_general(app: AppHandle, payload: GeneralPayload) -> Result<(), String> {
     let shortcut = payload.shortcut;
-    if shortcut.keys.is_empty() && payload.method == MuteMethod::Shortcut {
-        return Err(tr("Choose the shortcut set in Discord.", &[]));
-    }
-    if let Some(key) = shortcut
-        .keys
-        .iter()
-        .find(|k| !keys::is_known(k) || keys::is_mouse(k))
-    {
-        return Err(tr("This key cannot be sent: {key}", &[("key", key)]));
+    if payload.method == MuteMethod::Shortcut {
+        check_shortcut(&shortcut.keys, shortcut.action)?;
     }
     let client_id = payload.client_id.trim().to_string();
     if !client_id.chars().all(|c| c.is_ascii_digit()) {
@@ -218,18 +271,12 @@ pub fn save_general(app: AppHandle, payload: GeneralPayload) -> Result<(), Strin
             &[],
         ));
     }
-    if payload.oauth_port < 1024 {
+    let Some(oauth_port) = u16::try_from(payload.oauth_port)
+        .ok()
+        .filter(|p| *p >= 1024)
+    else {
         return Err(tr("The port must be between 1024 and 65535.", &[]));
-    }
-    let launcher = app.autolaunch();
-    if payload.autostart != launcher.is_enabled().unwrap_or(false) {
-        let result = if payload.autostart {
-            launcher.enable()
-        } else {
-            launcher.disable()
-        };
-        result.map_err(save_error)?;
-    }
+    };
     modify(&app, |settings| {
         let store = secrets();
         let secret = payload.client_secret.trim();
@@ -251,12 +298,22 @@ pub fn save_general(app: AppHandle, payload: GeneralPayload) -> Result<(), Strin
         settings.method = payload.method;
         settings.shortcut = shortcut;
         settings.rpc.client_id = client_id;
-        settings.rpc.oauth_port = payload.oauth_port;
+        settings.rpc.oauth_port = oauth_port;
         settings.check_updates = payload.check_updates;
         log::info!("Settings saved");
         Ok(credentials_changed)
-    })
-    .map(drop)
+    })?;
+    // Last: the settings are saved even if the system refuses this one.
+    let launcher = app.autolaunch();
+    if payload.autostart != launcher.is_enabled().unwrap_or(false) {
+        let result = if payload.autostart {
+            launcher.enable()
+        } else {
+            launcher.disable()
+        };
+        result.map_err(save_error)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -286,29 +343,21 @@ pub async fn check_credentials(client_id: String, client_secret: String) -> (boo
 }
 
 /// Types the shortcut after a delay, so the user can record it in Discord's
-/// keybind settings (F13 and the like are missing from most keyboards).
+/// keybind settings (F13 and the like are missing from most keyboards). Returns once
+/// it is sent.
 #[tauri::command]
-pub fn send_shortcut(codes: Vec<String>) -> Result<(), String> {
-    if codes.is_empty() {
-        return Err(tr("Choose the shortcut set in Discord.", &[]));
-    }
-    if let Some(key) = codes
-        .iter()
-        .find(|k| !keys::is_known(k) || keys::is_mouse(k))
-    {
-        return Err(tr("This key cannot be sent: {key}", &[("key", key)]));
-    }
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(3));
-        let sent = crate::platform::send_keys(&codes, true).and_then(|()| {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            crate::platform::send_keys(&codes, false)
-        });
-        if let Err(e) = sent {
-            log::error!("Cannot send the shortcut: {e}");
-        }
-    });
-    Ok(())
+pub async fn send_shortcut(codes: Vec<String>) -> Result<(), String> {
+    check_shortcut(&codes, ShortcutAction::ToggleMute)?;
+    tokio::time::sleep(SEND_DELAY).await;
+    crate::platform::send_keys(&codes, true)?;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    crate::platform::send_keys(&codes, false)
+}
+
+/// Mutes Discord for three seconds with the chosen method.
+#[tauri::command]
+pub fn test_mute(host: tauri::State<'_, Host>) {
+    host.send(Event::Test);
 }
 
 #[tauri::command]

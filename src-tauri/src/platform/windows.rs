@@ -6,7 +6,8 @@ use dam_core::keys;
 use windows_sys::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentThread, OpenProcess, QueryFullProcessImageNameW, SetThreadPriority,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, THREAD_PRIORITY_TIME_CRITICAL,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
@@ -23,13 +24,17 @@ use super::KeySink;
 
 static SINK: OnceLock<KeySink> = OnceLock::new();
 
+/// Marks the keys this application sends (dwExtraInfo): only those are ignored, so
+/// keys sent by AutoHotkey, mouse software or Steam Input still count.
+const OWN_INPUT: usize = 0x4441_4D21; // "DAM!"
+
 /// Hook procedures run on the thread that installed them, between two messages:
 /// they only forward the event and return at once (Windows drops slow hooks).
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam as *const KBDLLHOOKSTRUCT);
-        // Injected: our own shortcut for Discord, or another program's.
-        if info.flags & LLKHF_INJECTED == 0 {
+        let own = info.flags & LLKHF_INJECTED != 0 && info.dwExtraInfo == OWN_INPUT;
+        if !own {
             let down = match wparam as u32 {
                 WM_KEYDOWN | WM_SYSKEYDOWN => Some(true),
                 WM_KEYUP | WM_SYSKEYUP => Some(false),
@@ -49,7 +54,8 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam as *const MSLLHOOKSTRUCT);
-        if info.flags & LLMHF_INJECTED == 0 {
+        let own = info.flags & LLMHF_INJECTED != 0 && info.dwExtraInfo == OWN_INPUT;
+        if !own {
             let x_button = || match info.mouseData >> 16 {
                 1 => Some("Mouse4"),
                 2 => Some("Mouse5"),
@@ -79,6 +85,9 @@ pub fn listen(sink: KeySink) -> Result<(), String> {
     std::thread::Builder::new()
         .name("input-hooks".into())
         .spawn(move || unsafe {
+            // Windows silently removes a hook that answers too slowly
+            // (LowLevelHooksTimeout), e.g. while a game loads every core.
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
             let module = GetModuleHandleW(std::ptr::null());
             let keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
             let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
@@ -146,7 +155,7 @@ pub fn send_keys(codes: &[String], down: bool) -> Result<(), String> {
                     wScan: scan,
                     dwFlags: flags,
                     time: 0,
-                    dwExtraInfo: 0,
+                    dwExtraInfo: OWN_INPUT,
                 },
             },
         });

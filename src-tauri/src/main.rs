@@ -5,10 +5,9 @@ mod discord;
 mod host;
 mod platform;
 mod settings;
+mod state;
 mod tray;
 mod updates;
-
-use std::sync::Mutex;
 
 use dam_core::config::{log_dir, settings_file, Settings};
 use dam_core::i18n;
@@ -17,13 +16,6 @@ use tauri::{Manager, RunEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 fn main() {
-    let mut settings = Settings::load(&settings_file());
-    i18n::set_language(&settings.language);
-    if settings.refresh_presets(presets()) {
-        // Not fatal: the profiles follow their presets in memory anyway.
-        let _ = settings.save(&settings_file());
-    }
-
     let app = tauri::Builder::default()
         // First plugin: a second launch opens the settings of the running instance.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -50,7 +42,6 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::PendingUpdate::default())
-        .manage(settings::Store(Mutex::new(settings.clone())))
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::get_state,
@@ -60,11 +51,20 @@ fn main() {
             settings::reauthorize,
             settings::check_updates,
             settings::send_shortcut,
+            settings::test_mute,
             settings::open_external,
             settings::open_log_folder,
         ])
-        .setup(move |app| {
+        // Only the first instance gets here: a second launch must not touch the files.
+        .setup(|app| {
             log::info!("Discord Auto-Mute {} starting", env!("CARGO_PKG_VERSION"));
+            let mut settings = Settings::load(&settings_file());
+            i18n::set_language(&settings.language);
+            if settings.refresh_presets(presets()) {
+                // Not fatal: the profiles follow their presets in memory anyway.
+                let _ = settings.save(&settings_file());
+            }
+            app.manage(settings::Store::new(settings.clone()));
             let handle = app.handle().clone();
             app.manage(host::start(handle.clone(), settings.clone()));
             tray::create(&handle)?;
@@ -83,7 +83,7 @@ fn main() {
         RunEvent::ExitRequested {
             api, code: None, ..
         } => api.prevent_exit(),
-        // Never leave Discord muted behind (session end, Ctrl+C in a terminal…).
+        // Never leave Discord muted behind; a crash is recovered at the next start.
         RunEvent::Exit => {
             if let Some(host) = app.try_state::<host::Host>() {
                 host.quit();

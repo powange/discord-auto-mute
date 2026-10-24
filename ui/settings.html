@@ -18,7 +18,7 @@
 
   <section id="tab-profiles" class="profiles">
     <aside class="list">
-      <div class="live" id="live"></div>
+      <div class="live" id="live" role="status"></div>
       <ul id="profiles"></ul>
       <p id="no-profiles" class="note" hidden data-i18n="No profile yet: add the games you play.">No profile yet: add the games you play.</p>
       <button id="add" class="primary" data-i18n="Add a game">Add a game</button>
@@ -41,7 +41,7 @@
         <input id="name" class="title" autocomplete="off" spellcheck="false" aria-label="Name">
         <label class="switch"><input type="checkbox" id="enabled"> <span data-i18n="Enabled">Enabled</span></label>
       </div>
-      <p id="preset_info" class="note"></p>
+      <div id="preset_info" class="notices"></div>
 
       <h3 data-i18n="Game executables">Game executables</h3>
       <p class="note" data-i18n="The profile applies while one of these programs is in the foreground. * matches any text.">The profile applies while one of these programs is in the foreground. * matches any text.</p>
@@ -84,12 +84,12 @@
     </div>
 
     <div id="method-shortcut" class="group">
-      <p data-i18n="In Discord: User Settings › Keybinds › Add a Keybind, choose the action below, click the keybind field, then use “Send the shortcut in 3 s”.">In Discord: User Settings › Keybinds › Add a Keybind, choose the action below, click the keybind field, then use “Send the shortcut in 3 s”.</p>
+      <p data-i18n="In Discord: User Settings › Keybinds › Add a Keybind, and choose the action below. Then click “Send the shortcut” here and, within 5 seconds, click Discord's keybind field: the application types the shortcut for you.">In Discord: User Settings › Keybinds › Add a Keybind, and choose the action below. Then click “Send the shortcut” here and, within 5 seconds, click Discord's keybind field: the application types the shortcut for you.</p>
       <div class="grid">
         <label for="action" data-i18n="Discord action:">Discord action:</label>
         <select id="action">
+          <option value="push_to_mute" data-i18n="Push to Mute (recommended)">Push to Mute (recommended)</option>
           <option value="toggle_mute" data-i18n="Toggle Mute">Toggle Mute</option>
-          <option value="push_to_mute" data-i18n="Push to Mute">Push to Mute</option>
         </select>
         <span data-i18n="Shortcut:">Shortcut:</span>
         <div class="row">
@@ -99,7 +99,9 @@
         <span></span>
         <span id="shortcut_hint" class="note" hidden data-i18n="Press the shortcut, then release it… Escape cancels.">Press the shortcut, then release it… Escape cancels.</span>
       </div>
-      <div class="row"><button id="send_shortcut" data-i18n="Send the shortcut in 3 s">Send the shortcut in 3 s</button><span id="send_result" class="note"></span></div>
+      <div class="row"><button id="send_shortcut" data-i18n="Send the shortcut">Send the shortcut</button><span id="send_result" class="note" role="status"></span></div>
+      <label class="inline"><input type="checkbox" id="set_in_discord"> <span data-i18n="I created this shortcut in Discord">I created this shortcut in Discord</span></label>
+      <div class="row"><button id="test_mute" data-i18n="Test: mute Discord for 3 s">Test: mute Discord for 3 s</button><span id="test_result" class="note" role="status"></span></div>
       <p class="note" data-i18n="F13 to F24 are keys no game uses: sending them has no effect in the game.">F13 to F24 are keys no game uses: sending them has no effect in the game.</p>
       <p class="note" id="linux_shortcut" hidden data-i18n="On Linux, Discord shortcuts only work in an X11 session. Under Wayland, use the Application method.">On Linux, Discord shortcuts only work in an X11 session. Under Wayland, use the Application method.</p>
     </div>

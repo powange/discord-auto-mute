@@ -2,7 +2,8 @@
 //! `input` group), the foreground window from X11 (games, Proton included, run under
 //! X11 or XWayland), synthetic keys with XTest.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,17 +22,34 @@ use super::{KeySink, NO_PERMISSION};
 const RESCAN: Duration = Duration::from_secs(3);
 
 fn is_keyboard_or_mouse(device: &Device) -> bool {
-    device
-        .supported_keys()
-        .is_some_and(|keys| keys.contains(KeyCode::KEY_A) || keys.contains(KeyCode::BTN_MIDDLE))
+    device.supported_keys().is_some_and(|keys| {
+        [
+            KeyCode::KEY_A,
+            KeyCode::BTN_MIDDLE,
+            KeyCode::BTN_SIDE,
+            KeyCode::BTN_BACK,
+        ]
+        .iter()
+        .any(|k| keys.contains(*k))
+    })
+}
+
+/// The devices being read, and the ones not worth opening again (other kinds of
+/// devices, refused access), with their device number: a new device on the same
+/// path is tried again.
+#[derive(Default)]
+struct Devices {
+    open: HashSet<PathBuf>,
+    ignored: HashMap<PathBuf, u64>,
 }
 
 fn read_device(
     mut device: Device,
     path: PathBuf,
     sink: Arc<KeySink>,
-    open: Arc<Mutex<HashSet<PathBuf>>>,
+    devices: Arc<Mutex<Devices>>,
 ) {
+    let mut down = HashSet::new();
     loop {
         match device.fetch_events() {
             Ok(events) => {
@@ -42,13 +60,23 @@ fn read_device(
                         continue;
                     }
                     if let Some(key) = keys::from_evdev(event.code()) {
-                        sink(key, event.value() == 1);
+                        let pressed = event.value() == 1;
+                        if pressed {
+                            down.insert(key);
+                        } else {
+                            down.remove(key);
+                        }
+                        sink(key, pressed);
                     }
                 }
             }
             Err(e) => {
+                // Unplugged or asleep (wireless): its held keys will never be released.
                 log::info!("Input device {} closed: {e}", path.display());
-                open.lock().unwrap().remove(&path);
+                for key in down {
+                    sink(key, false);
+                }
+                devices.lock().unwrap().open.remove(&path);
                 return;
             }
         }
@@ -56,7 +84,7 @@ fn read_device(
 }
 
 /// Opens the devices not opened yet; Err(NO_PERMISSION) when none can be read.
-fn scan(sink: &Arc<KeySink>, open: &Arc<Mutex<HashSet<PathBuf>>>) -> Result<(), String> {
+fn scan(sink: &Arc<KeySink>, devices: &Arc<Mutex<Devices>>) -> Result<(), String> {
     let entries = std::fs::read_dir("/dev/input").map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             "no input device (/dev/input is missing)".to_string()
@@ -65,23 +93,36 @@ fn scan(sink: &Arc<KeySink>, open: &Arc<Mutex<HashSet<PathBuf>>>) -> Result<(), 
         }
     })?;
     let mut denied = false;
+    let mut present = HashSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let is_event = path
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with("event"));
-        if !is_event || open.lock().unwrap().contains(&path) {
+        let Some(number) = entry.metadata().ok().map(|m| m.rdev()) else {
             continue;
+        };
+        if !is_event {
+            continue;
+        }
+        present.insert(path.clone());
+        {
+            let known = devices.lock().unwrap();
+            if known.open.contains(&path) || known.ignored.get(&path) == Some(&number) {
+                continue;
+            }
         }
         let device = match Device::open(&path) {
             Ok(device) => device,
             Err(e) => {
                 denied |= e.kind() == std::io::ErrorKind::PermissionDenied;
+                devices.lock().unwrap().ignored.insert(path, number);
                 continue;
             }
         };
         if !is_keyboard_or_mouse(&device) {
+            devices.lock().unwrap().ignored.insert(path, number);
             continue;
         }
         log::info!(
@@ -89,14 +130,21 @@ fn scan(sink: &Arc<KeySink>, open: &Arc<Mutex<HashSet<PathBuf>>>) -> Result<(), 
             path.display(),
             device.name().unwrap_or("unnamed")
         );
-        open.lock().unwrap().insert(path.clone());
-        let (sink, open) = (sink.clone(), open.clone());
-        std::thread::Builder::new()
+        // Recorded first: the thread removes it when the device goes away.
+        devices.lock().unwrap().open.insert(path.clone());
+        let (sink, shared) = (sink.clone(), devices.clone());
+        let thread_path = path.clone();
+        let spawned = std::thread::Builder::new()
             .name("input-device".into())
-            .spawn(move || read_device(device, path, sink, open))
-            .map_err(|e| e.to_string())?;
+            .spawn(move || read_device(device, thread_path, sink, shared));
+        if let Err(e) = spawned {
+            devices.lock().unwrap().open.remove(&path);
+            return Err(e.to_string());
+        }
     }
-    if denied && open.lock().unwrap().is_empty() {
+    let mut known = devices.lock().unwrap();
+    known.ignored.retain(|path, _| present.contains(path));
+    if denied && known.open.is_empty() {
         return Err(NO_PERMISSION.into());
     }
     Ok(())
@@ -105,13 +153,13 @@ fn scan(sink: &Arc<KeySink>, open: &Arc<Mutex<HashSet<PathBuf>>>) -> Result<(), 
 /// Reads every keyboard and mouse; devices plugged in later are picked up.
 pub fn listen(sink: KeySink) -> Result<(), String> {
     let sink = Arc::new(sink);
-    let open: Arc<Mutex<HashSet<PathBuf>>> = Arc::default();
-    let first = scan(&sink, &open);
+    let devices: Arc<Mutex<Devices>> = Arc::default();
+    let first = scan(&sink, &devices);
     std::thread::Builder::new()
         .name("input-scan".into())
         .spawn(move || loop {
             std::thread::sleep(RESCAN);
-            let _ = scan(&sink, &open);
+            let _ = scan(&sink, &devices);
         })
         .map_err(|e| e.to_string())?;
     first

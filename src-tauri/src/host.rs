@@ -13,7 +13,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::discord::{self, DiscordState};
-use crate::platform;
+use crate::{platform, state};
 
 const FOREGROUND_POLL: Duration = Duration::from_millis(250);
 const RECENT_MAX: usize = 15;
@@ -39,6 +39,10 @@ const NOT_GAMES: &[&str] = &[
 ];
 /// How long a "Toggle Mute" shortcut stays down: long enough for Discord to see it.
 const TAP: Duration = Duration::from_millis(40);
+/// state.json key: Discord was muted by the application when it last stopped.
+const MUTED_KEY: &str = "discord_muted_by_app";
+/// How long quitting waits for Discord to be unmuted.
+const QUIT_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub enum Event {
@@ -50,6 +54,9 @@ pub enum Event {
     },
     Paused(bool),
     Reauthorize,
+    /// Mutes Discord for a few seconds, to check the setup.
+    Test,
+    TestEnd,
     DiscordMuted(Option<bool>),
     Discord(DiscordState),
     /// Gives the microphone back, then answers.
@@ -61,6 +68,8 @@ pub enum Event {
 pub struct Shared {
     pub status: Status,
     pub method: MuteMethod,
+    /// The user confirmed the shortcut exists in Discord.
+    pub shortcut_set: bool,
     pub discord: DiscordState,
     /// Why keys cannot be read (platform::linux::NO_PERMISSION or a system error).
     pub input_error: Option<String>,
@@ -68,6 +77,9 @@ pub struct Shared {
     pub recent: Vec<String>,
     /// Version of an available update (tray menu entry).
     pub update: Option<String>,
+    /// Id and name of the last profile that was active (the tray menu opens with
+    /// another program in the foreground).
+    pub last_profile: Option<(String, String)>,
 }
 
 pub struct Host {
@@ -88,11 +100,12 @@ impl Host {
         self.shared.lock().unwrap().update = version;
     }
 
-    /// Unmutes Discord if the application muted it; waits at most one second.
+    /// Unmutes Discord if the application muted it, and keeps it unmuted (paused).
+    /// Waits at most QUIT_WAIT; a crash is recovered at the next start.
     pub fn quit(&self) {
         let (tx, rx) = std::sync::mpsc::channel();
         self.send(Event::Quit(tx));
-        let _ = rx.recv_timeout(Duration::from_secs(1));
+        let _ = rx.recv_timeout(QUIT_WAIT);
     }
 }
 
@@ -128,10 +141,12 @@ pub fn start(app: AppHandle, settings: Settings) -> Host {
     let shared = Arc::new(Mutex::new(Shared {
         status: Status::default(),
         method: settings.method,
+        shortcut_set: settings.shortcut.set_in_discord,
         discord: DiscordState::Shortcut,
         input_error,
         recent: Vec::new(),
         update: None,
+        last_profile: None,
     }));
 
     let foreground_tx = tx.clone();
@@ -173,24 +188,62 @@ pub fn start(app: AppHandle, settings: Settings) -> Host {
 }
 
 /// Changes the Discord microphone with the configured method.
-async fn apply(settings: &Settings, discord: &discord::Client, mute: bool) {
+async fn apply(settings: &Settings, discord: &discord::Client, mute: bool) -> Result<(), String> {
     log::info!("{} Discord", if mute { "Muting" } else { "Unmuting" });
-    match settings.method {
+    let result = match settings.method {
         MuteMethod::Rpc => discord.set_mute(mute).await,
         MuteMethod::Shortcut => {
             let keys = &settings.shortcut.keys;
-            let result = match settings.shortcut.action {
+            match settings.shortcut.action {
                 ShortcutAction::PushToMute => platform::send_keys(keys, mute),
-                ShortcutAction::ToggleMute => platform::send_keys(keys, true).and_then(|()| {
-                    std::thread::sleep(TAP);
-                    platform::send_keys(keys, false)
-                }),
-            };
-            if let Err(e) = result {
-                log::error!("Cannot send the Discord shortcut: {e}");
+                ShortcutAction::ToggleMute => match platform::send_keys(keys, true) {
+                    Ok(()) => {
+                        tokio::time::sleep(TAP).await;
+                        platform::send_keys(keys, false)
+                    }
+                    Err(e) => Err(e),
+                },
             }
         }
+    };
+    if let Err(e) = &result {
+        log::error!(
+            "Cannot {} Discord: {e}",
+            if mute { "mute" } else { "unmute" }
+        );
     }
+    result
+}
+
+/// Applies a change and reports a failure to the engine (an unmute is retried later).
+async fn apply_change(
+    engine: &mut Engine,
+    settings: &Settings,
+    discord: &discord::Client,
+    mut change: Option<bool>,
+) {
+    while let Some(mute) = change {
+        change = match apply(settings, discord, mute).await {
+            Ok(()) => None,
+            Err(_) => engine.handle(Input::Failed(mute)),
+        };
+    }
+}
+
+/// After a crash with Discord muted: the RPC method unmutes once Discord answers;
+/// a Push to Mute shortcut is released now. A Toggle Mute shortcut cannot be undone
+/// blindly: the real state is unknown.
+async fn recover(settings: &Settings, engine: Engine) -> Engine {
+    log::warn!("The application stopped while Discord was muted: unmuting it");
+    match (settings.method, settings.shortcut.action) {
+        (MuteMethod::Rpc, _) => return engine,
+        (MuteMethod::Shortcut, ShortcutAction::PushToMute) => {
+            let _ = platform::send_keys(&settings.shortcut.keys, false);
+        }
+        (MuteMethod::Shortcut, ShortcutAction::ToggleMute) => {}
+    }
+    state::set(MUTED_KEY, false.into());
+    Engine::new(settings.profiles.clone())
 }
 
 async fn run(
@@ -203,8 +256,14 @@ async fn run(
     let own_exe = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
-    let mut engine = Engine::new(settings.profiles.clone());
-    let discord = discord::Client::start(app.clone(), events, settings.clone());
+    let crashed = state::get(MUTED_KEY).and_then(|v| v.as_bool()) == Some(true);
+    let mut engine = if crashed {
+        recover(&settings, Engine::recovering(settings.profiles.clone())).await
+    } else {
+        Engine::new(settings.profiles.clone())
+    };
+    let discord = discord::Client::start(app.clone(), events.clone(), settings.clone());
+    let mut testing = false;
     while let Some(event) = rx.recv().await {
         // Keys of other games are most events: they change nothing the tray shows.
         let is_key = matches!(event, Event::Key(..));
@@ -230,18 +289,23 @@ async fn run(
                 settings: new,
                 credentials_changed,
             } => {
-                if new.method != settings.method || new.shortcut != settings.shortcut {
+                let shortcut_changed = (&new.shortcut.keys, new.shortcut.action)
+                    != (&settings.shortcut.keys, settings.shortcut.action);
+                if new.method != settings.method || shortcut_changed {
                     // Undo with the old method before switching.
-                    if let Some(mute) = engine.release() {
-                        apply(&settings, &discord, mute).await;
-                    }
+                    let change = engine.release();
+                    apply_change(&mut engine, &settings, &discord, change).await;
                     if new.method == MuteMethod::Shortcut {
                         engine.handle(Input::DiscordMuted(None));
                     }
                 }
                 discord.configure(new.clone(), credentials_changed);
                 settings = new;
-                shared.lock().unwrap().method = settings.method;
+                {
+                    let mut s = shared.lock().unwrap();
+                    s.method = settings.method;
+                    s.shortcut_set = settings.shortcut.set_in_discord;
+                }
                 engine.handle(Input::Profiles(settings.profiles.clone()))
             }
             Event::Paused(paused) => {
@@ -250,6 +314,26 @@ async fn run(
             }
             Event::Reauthorize => {
                 discord.reauthorize();
+                None
+            }
+            Event::Test => {
+                if !testing && !engine.status().muting {
+                    testing = true;
+                    if apply(&settings, &discord, true).await.is_ok() {
+                        let events = events.clone();
+                        tokio::task::spawn_local(async move {
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                            let _ = events.send(Event::TestEnd);
+                        });
+                    } else {
+                        testing = false;
+                    }
+                }
+                None
+            }
+            Event::TestEnd => {
+                testing = false;
+                let _ = apply(&settings, &discord, false).await;
                 None
             }
             Event::DiscordMuted(muted) => {
@@ -264,20 +348,28 @@ async fn run(
                 None
             }
             Event::Quit(done) => {
-                if let Some(mute) = engine.release() {
-                    apply(&settings, &discord, mute).await;
+                // Paused: nothing mutes again until the process ends (installer…).
+                engine.handle(Input::Paused(true));
+                let change = engine.release();
+                apply_change(&mut engine, &settings, &discord, change).await;
+                if !engine.status().muting {
+                    state::set(MUTED_KEY, false.into());
                 }
                 let _ = done.send(());
                 None
             }
         };
-        if let Some(mute) = change {
-            apply(&settings, &discord, mute).await;
-        }
+        apply_change(&mut engine, &settings, &discord, change).await;
         let status = engine.status();
         let changed = {
             let mut s = shared.lock().unwrap();
             let changed = s.status != status;
+            if changed && s.status.muting != status.muting {
+                state::set(MUTED_KEY, status.muting.into());
+            }
+            if status.profile.is_some() {
+                s.last_profile = status.profile.clone();
+            }
             s.status = status;
             changed
         };

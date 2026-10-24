@@ -121,7 +121,7 @@ mod tests {
         set_language("fr");
         assert_eq!(current(), "fr");
         assert_eq!(tr("Paused", &[]), "En pause");
-        assert_eq!(tr("Profile: {name}", &[("name", "Rust")]), "Profil : Rust");
+        assert_eq!(tr("{name}: ready", &[("name", "Rust")]), "Rust : prêt");
         assert_eq!(tr("Not translated", &[]), "Not translated");
         set_language("en");
         assert_eq!(tr("Paused", &[]), "Paused");

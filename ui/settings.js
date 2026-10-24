@@ -10,6 +10,8 @@ let selected = null; // id of the profile shown, or null for the "add a game" pa
 let layout = null; // the keyboard layout's labels, when the web view knows them
 let capture = null; // key capture in progress: { kind: "profile" | "shortcut", pressed, order }
 let shortcutDraft = null; // shortcut keys being edited in the Discord tab
+let revision = 0; // of `settings`: get_state reports changes made elsewhere (tray menu)
+let saving = Promise.resolve(); // profile edits, one after the other
 
 const t = (text, values = {}) => {
   let out = (data && data.texts[text]) || text;
@@ -57,6 +59,7 @@ function chip(text, onRemove, className = "") {
   const node = el("span", { className: `chip ${className}`.trim() }, el("span", { textContent: text }));
   if (onRemove) {
     const remove = el("button", { textContent: "×", title: t("Remove") });
+    remove.setAttribute("aria-label", `${t("Remove")} ${text}`);
     remove.addEventListener("click", onRemove);
     node.append(remove);
   } else {
@@ -81,6 +84,8 @@ function problemText() {
     const s = state.discord.state;
     if (s === "not_configured") return t("Discord application not configured: see the Discord tab.");
     if (s === "needs_authorization") return t(state.discord.detail);
+  } else if (!settings.shortcut.set_in_discord) {
+    return t("Last step: create the shortcut in Discord (Discord tab), otherwise nothing gets muted.");
   }
   return "";
 }
@@ -105,7 +110,7 @@ function renderLive() {
   else if (status && status.profile) {
     text = status.muting
       ? t("{name}: Discord microphone muted", { name: status.profile[1] })
-      : t("Profile: {name}", { name: status.profile[1] });
+      : t("{name}: ready", { name: status.profile[1] });
   }
   $("live").textContent = text;
   const problem = problemText();
@@ -130,10 +135,23 @@ function renderLive() {
 async function poll() {
   try {
     state = await invoke("get_state");
+    if (state.revision !== revision) await reloadSettings();
     renderLive();
   } catch (e) {
     console.error(e);
   }
+}
+
+/** Settings changed elsewhere (tray menu): show them, without disturbing a field being typed in. */
+async function reloadSettings() {
+  const fresh = await invoke("get_settings");
+  if (fresh.revision === revision) return;
+  settings = fresh.settings;
+  revision = fresh.revision;
+  renderList();
+  const typing = document.activeElement && $("editor").contains(document.activeElement)
+    && document.activeElement.tagName === "INPUT" && document.activeElement.type === "text";
+  if (!typing) renderEditor();
 }
 
 /* ---------- profiles ---------- */
@@ -149,7 +167,15 @@ function renderList() {
     li.dataset.id = p.id;
     li.setAttribute("aria-selected", p.id === selected);
     li.title = p.enabled ? p.name : `${p.name} (${t("disabled")})`;
+    li.tabIndex = 0;
+    li.setAttribute("role", "option");
     li.addEventListener("click", () => select(p.id));
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select(p.id);
+      }
+    });
     return li;
   });
   $("profiles").replaceChildren(...items);
@@ -180,21 +206,18 @@ function renderEditor() {
   const preset = profile.preset && data.presets.find((p) => p.id === profile.preset.id);
   let info = preset ? t("Preset: {name}", { name: preset.name }) : t("Custom profile");
   if (preset && profile.preset && JSON.stringify(profile.preset.base) !== JSON.stringify(pick(profile))) {
-    info += ` — ${t("modified")}`;
+    info += ` (${t("modified")})`;
   }
-  $("preset_info").textContent = info;
-  if (preset && !preset.key_verified) {
-    $("preset_info").append(el("span", {
-      className: "unverified",
-      textContent: ` — ${t("default key not verified: check it in the game")}`,
-    }));
-  }
+  const notices = [el("p", { className: "note", textContent: info })];
+  const notice = (text) => notices.push(el("p", { className: "notice", textContent: text }));
+  if (!profile.enabled) notice(t("This profile is disabled: switch on “Enabled” to use it."));
   if (preset && preset.ptt_disabled_by_default) {
-    $("preset_info").append(el("span", {
-      className: "unverified",
-      textContent: ` — ${t("this game uses an open mic by default: enable push-to-talk in its audio settings")}`,
-    }));
+    notice(t("This game uses an open mic by default: in its audio settings, switch the voice chat to push-to-talk."));
   }
+  if (preset && !preset.key_verified && profile.keys.length) {
+    notice(t("Default key not verified: check it in the game's controls (voice chat / push to talk)."));
+  }
+  $("preset_info").replaceChildren(...notices);
   $("reset").hidden = !preset;
 
   $("executables").replaceChildren(...profile.executables.map((exe, i) =>
@@ -202,7 +225,13 @@ function renderEditor() {
   if (!profile.executables.length) $("executables").append(el("span", { className: "note bad", textContent: t("No executable: the profile never applies.") }));
   $("keys").replaceChildren(...profile.keys.map((code, i) =>
     chip(keyLabel(code), () => saveProfile((p) => p.keys.splice(i, 1)))));
-  if (!profile.keys.length) $("keys").append(el("span", { className: "note bad", textContent: t("No key: the profile never mutes Discord.") }));
+  if (!profile.keys.length) {
+    // A preset without a known key: an instruction, not an error.
+    const text = preset
+      ? t("Enable push-to-talk in the game, then add the key it uses here.")
+      : t("No key: the profile never mutes Discord.");
+    $("keys").append(el("span", { className: preset ? "note" : "note bad", textContent: text }));
+  }
   for (const radio of document.querySelectorAll("input[name=mode]")) radio.checked = radio.value === profile.mode;
 }
 
@@ -211,23 +240,46 @@ function pick(profile) {
   return { executables: profile.executables, keys: profile.keys, mode: profile.mode };
 }
 
-async function profileAction(action) {
-  // The editor and the "add a game" panel each show the errors of their own actions.
-  const errorId = selected ? "profile_error" : "adder_error";
-  showError(errorId, "");
-  try {
-    settings = await invoke("profile_action", { action });
-    return true;
-  } catch (e) {
-    showError(errorId, String(e));
-    return false;
+function profileAction(action) {
+  // One after the other: each one starts from the settings the previous one returned.
+  const run = async () => {
+    // The editor and the "add a game" panel each show the errors of their own actions.
+    const errorId = selected ? "profile_error" : "adder_error";
+    showError(errorId, "");
+    try {
+      const before = settings;
+      settings = await invoke("profile_action", { action: typeof action === "function" ? action() : action });
+      revision += 1; // ours: no reload needed (get_state catches up on the next poll)
+      noteDisabled(before, settings);
+      return true;
+    } catch (e) {
+      showError(errorId, String(e));
+      return false;
+    }
+  };
+  const result = saving.then(run);
+  saving = result.catch(() => false);
+  return result;
+}
+
+/** Enabling a profile turns off the other profiles of the same game: say so. */
+function noteDisabled(before, after) {
+  const turnedOff = after.profiles.filter((p) => !p.enabled && before.profiles.some((b) => b.id === p.id && b.enabled));
+  const others = turnedOff.filter((p) => p.id !== selected);
+  if (others.length) {
+    setTimeout(() => showError("profile_error", t("“{name}” was disabled: only one profile per game can be enabled.", { name: others[0].name })), 0);
   }
 }
 
 async function saveProfile(change) {
-  const profile = structuredClone(currentProfile());
-  change(profile);
-  if (await profileAction({ kind: "update", profile })) {
+  const id = selected;
+  // The change applies to the profile as it is when the save runs, not when it was asked.
+  const ok = await profileAction(() => {
+    const profile = structuredClone(settings.profiles.find((p) => p.id === id));
+    change(profile);
+    return { kind: "update", profile };
+  });
+  if (ok) {
     renderList();
     renderEditor();
   }
@@ -267,6 +319,7 @@ function startCapture(kind) {
 
 function stopCapture() {
   if (!capture) return;
+  clearTimeout(capture.ctrlTimer);
   capture = null;
   for (const id of ["add_key", "record_shortcut"]) $(id).classList.remove("capturing");
   for (const id of ["capture_hint", "shortcut_hint"]) $(id).hidden = true;
@@ -285,7 +338,15 @@ window.addEventListener("keydown", (e) => {
   e.stopPropagation();
   if (e.repeat) return;
   if (e.code === "Escape" && !capture.order.length) return stopCapture();
-  if (capture.kind === "profile") return addProfileKey(e.code);
+  if (capture.kind === "profile") {
+    // Windows sends a fake Left Ctrl just before AltGr (Right Alt): wait a moment.
+    if (e.code === "ControlLeft") {
+      capture.ctrlTimer = setTimeout(() => capture && addProfileKey("ControlLeft"), 60);
+      return;
+    }
+    clearTimeout(capture.ctrlTimer);
+    return addProfileKey(e.code);
+  }
   capture.pressed.add(e.code);
   if (!capture.order.includes(e.code)) capture.order.push(e.code);
   renderShortcut(capture.order);
@@ -302,16 +363,20 @@ window.addEventListener("keyup", (e) => {
   renderShortcut(keys);
 }, true);
 
+// A capture ends when the window loses the focus (Alt+Tab to check the game…).
+window.addEventListener("blur", stopCapture);
+document.addEventListener("visibilitychange", stopCapture);
+
 // Mouse buttons 4 and 5 would navigate back and forward in the web view.
 for (const type of ["mousedown", "mouseup", "auxclick"]) {
   window.addEventListener(type, (e) => {
     if (e.button === 3 || e.button === 4) e.preventDefault();
-    if (type !== "mousedown" || !capture || capture.kind !== "profile") return;
-    const code = MOUSE_BUTTONS[e.button];
+    if (type !== "mousedown" || !capture) return;
+    const code = capture.kind === "profile" && MOUSE_BUTTONS[e.button];
     if (code) {
       e.preventDefault();
       addProfileKey(code);
-    } else if (e.button === 0 && e.target.id !== "add_key") {
+    } else if (e.button === 0 && !["add_key", "record_shortcut"].includes(e.target.id)) {
       stopCapture();
     }
   }, true);
@@ -330,6 +395,7 @@ function showMethod() {
 }
 
 function fillForms() {
+  stopCapture();
   for (const radio of document.querySelectorAll("input[name=method]")) radio.checked = radio.value === settings.method;
   showMethod();
   $("action").value = settings.shortcut.action;
@@ -343,6 +409,10 @@ function fillForms() {
     el("option", { value: code, textContent: code === "auto" ? t(label) : label, selected: code === settings.language })));
   $("autostart").checked = data.autostart;
   $("check_updates").checked = settings.check_updates;
+  $("set_in_discord").checked = settings.shortcut.set_in_discord;
+  $("show_secret").checked = false;
+  $("client_secret").type = "password";
+  for (const id of ["check_result", "send_result", "test_result"]) $(id).textContent = "";
   showError("error", "");
 }
 
@@ -351,7 +421,7 @@ async function save() {
   const payload = {
     language: $("language").value,
     method: document.querySelector("input[name=method]:checked").value,
-    shortcut: { keys: shortcutDraft, action: $("action").value },
+    shortcut: { keys: shortcutDraft, action: $("action").value, set_in_discord: $("set_in_discord").checked },
     client_id: $("client_id").value.trim(),
     client_secret: $("client_secret").value.trim(),
     oauth_port: Number($("oauth_port").value) || 0,
@@ -382,6 +452,7 @@ function selectTab(name) {
 async function load() {
   data = await invoke("get_settings");
   settings = data.settings;
+  revision = data.revision;
   try {
     if (navigator.keyboard && navigator.keyboard.getLayoutMap) layout = await navigator.keyboard.getLayoutMap();
   } catch {
@@ -391,6 +462,7 @@ async function load() {
   for (const node of document.querySelectorAll("[data-i18n]")) node.textContent = t(node.dataset.i18n);
   for (const node of document.querySelectorAll("[data-i18n-placeholder]")) node.placeholder = t(node.dataset.i18nPlaceholder);
   document.title = t("{app} – Settings", { app: "Discord Auto-Mute" });
+  $("name").setAttribute("aria-label", t("Profile name"));
   $("autostart_label").textContent = t(data.platform === "windows" ? "Start with Windows" : "Start on login");
   $("linux_shortcut").hidden = data.platform !== "linux";
   $("version").textContent = `Discord Auto-Mute ${data.version}`;
@@ -464,14 +536,33 @@ $("remove").addEventListener("click", async () => {
 for (const radio of document.querySelectorAll("input[name=method]")) radio.addEventListener("change", showMethod);
 $("record_shortcut").addEventListener("click", () => (capture ? stopCapture() : startCapture("shortcut")));
 $("send_shortcut").addEventListener("click", async () => {
-  $("send_result").className = "note";
+  const button = $("send_shortcut");
+  const result = $("send_result");
+  button.disabled = true;
+  result.className = "note";
+  let left = 5;
+  const tick = () => {
+    result.textContent = t("Click Discord's keybind field now: sending in {seconds} s…", { seconds: left });
+    left -= 1;
+  };
+  tick();
+  const timer = setInterval(tick, 1000);
   try {
     await invoke("send_shortcut", { codes: shortcutDraft });
-    $("send_result").textContent = t("Sending in 3 seconds: switch to Discord's keybind field now.");
+    result.className = "note good";
+    result.textContent = t("Sent. Discord should now show the shortcut: tick the box below.");
   } catch (e) {
-    $("send_result").className = "note bad";
-    $("send_result").textContent = String(e);
+    result.className = "note bad";
+    result.textContent = String(e);
+  } finally {
+    clearInterval(timer);
+    button.disabled = false;
   }
+});
+$("test_mute").addEventListener("click", async () => {
+  await invoke("test_mute");
+  $("test_result").className = "note";
+  $("test_result").textContent = t("Discord should be muted for 3 seconds. Nothing happens? Check the shortcut in Discord, or click Save first.");
 });
 $("portal").addEventListener("click", () => invoke("open_external", { url: "https://discord.com/developers/applications" }));
 $("copy").addEventListener("click", () => navigator.clipboard.writeText($("redirect").value));
@@ -482,9 +573,14 @@ $("show_secret").addEventListener("change", () => ($("client_secret").type = $("
 $("check").addEventListener("click", async () => {
   $("check_result").className = "note";
   $("check_result").textContent = t("Checking…");
-  const [ok, message] = await invoke("check_credentials", { clientId: $("client_id").value, clientSecret: $("client_secret").value });
-  $("check_result").className = `note ${ok ? "good" : "bad"}`;
-  $("check_result").textContent = message;
+  try {
+    const [ok, message] = await invoke("check_credentials", { clientId: $("client_id").value, clientSecret: $("client_secret").value });
+    $("check_result").className = `note ${ok ? "good" : "bad"}`;
+    $("check_result").textContent = message;
+  } catch (e) {
+    $("check_result").className = "note bad";
+    $("check_result").textContent = String(e);
+  }
 });
 $("reauthorize").addEventListener("click", () => invoke("reauthorize"));
 $("open_log").addEventListener("click", () => invoke("open_log_folder"));
@@ -493,5 +589,7 @@ $("save").addEventListener("click", save);
 $("cancel").addEventListener("click", fillForms);
 
 load().catch((e) => {
-  document.body.textContent = String(e);
+  console.error(e);
+  $("problem").textContent = `${t("The settings could not be loaded:")} ${e}`;
+  $("problem").hidden = false;
 });
