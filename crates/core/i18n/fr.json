@@ -160,6 +160,7 @@
   "The profile needs a name.": "Le profil doit avoir un nom.",
   "The update could not be installed:": "La mise à jour n'a pas pu être installée :",
   "This authorization link is not the one {app} opened.": "Ce lien d'autorisation n'est pas celui ouvert par {app}.",
+  "this game uses an open mic by default: enable push-to-talk in its audio settings": "ce jeu est en micro ouvert par défaut : activez le push-to-talk dans ses réglages audio",
   "This key cannot be sent: {key}": "Cette touche ne peut pas être envoyée : {key}",
   "This preset no longer exists.": "Ce préréglage n'existe plus.",
   "This profile no longer exists.": "Ce profil n'existe plus.",

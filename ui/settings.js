@@ -185,6 +185,12 @@ function renderEditor() {
       textContent: ` — ${t("default key not verified: check it in the game")}`,
     }));
   }
+  if (preset && preset.ptt_disabled_by_default) {
+    $("preset_info").append(el("span", {
+      className: "unverified",
+      textContent: ` — ${t("this game uses an open mic by default: enable push-to-talk in its audio settings")}`,
+    }));
+  }
   $("reset").hidden = !preset;
 
   $("executables").replaceChildren(...profile.executables.map((exe, i) =>

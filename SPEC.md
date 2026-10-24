@@ -88,66 +88,66 @@ Même organisation que `goxlr-discord-sync` :
 
 ## Préréglages (50 jeux avec chat vocal intégré)
 
-Seuls les jeux qui ont **leur propre chat vocal** sont retenus.
+Seuls les jeux qui ont **leur propre chat vocal** sont retenus. La source de vérité est `crates/core/presets.json` ; touches, exécutables et AppID Steam viennent d'une recherche (wikis, documentation officielle, fichiers de configuration, Steam appinfo) faite le 24/10/2026.
 
-Légende : ✅ = touche par défaut confirmée · ⚠️ = touche à vérifier
+Légende : ✅ = touche confirmée par une source fiable · ⚠️ = source secondaire ou incertaine, à vérifier · — = pas de touche connue (micro ouvert ou touche non assignée)
 
-| # | Jeu | Touche par défaut |
-|---|---|---|
-| 1 | Counter-Strike 2 | K ✅ |
-| 2 | PUBG: Battlegrounds | T ⚠️ |
-| 3 | Fortnite | T ⚠️ |
-| 4 | Apex Legends | T ⚠️ |
-| 5 | Valorant | V (équipe) ✅ / U (groupe) ⚠️ |
-| 6 | Call of Duty: Warzone / Black Ops 7 | Z ⚠️ |
-| 7 | Rainbow Six Siege X | ⚠️ |
-| 8 | Overwatch 2 | ⚠️ |
-| 9 | Marvel Rivals | ⚠️ |
-| 10 | Battlefield 6 | ⚠️ |
-| 11 | Deadlock | K ⚠️ |
-| 12 | The Finals | ⚠️ |
-| 13 | Delta Force | ⚠️ |
-| 14 | Escape from Tarkov | K ⚠️ |
-| 15 | Arc Raiders | ⚠️ |
-| 16 | Hunt: Showdown 1896 | ⚠️ |
-| 17 | Team Fortress 2 | V ✅ |
-| 18 | Destiny 2 | ⚠️ |
-| 19 | Helldivers 2 | ⚠️ |
-| 20 | Naraka: Bladepoint | ⚠️ |
-| 21 | Squad | ⚠️ (plusieurs canaux) |
-| 22 | Hell Let Loose | ⚠️ (plusieurs canaux) |
-| 23 | Insurgency: Sandstorm | ⚠️ |
-| 24 | Ready or Not | ⚠️ |
-| 25 | Left 4 Dead 2 | ⚠️ |
-| 26 | Warframe | ⚠️ |
-| 27 | War Thunder | ⚠️ |
-| 28 | World of Tanks | ⚠️ |
-| 29 | Marathon | ⚠️ |
-| 30 | Payday 2 | ⚠️ |
-| 31 | Arena Breakout: Infinite | ⚠️ |
-| 32 | Dota 2 | ⚠️ |
-| 33 | World of Warcraft | ⚠️ |
-| 34 | Sea of Thieves | Alt gauche ✅ |
-| 35 | Rust | V ✅ |
-| 36 | DayZ | Verr. Maj ✅ |
-| 37 | Arma 3 | Verr. Maj ✅ |
-| 38 | Arma Reforger | ⚠️ |
-| 39 | GTA Online | N ✅ |
-| 40 | FiveM (GTA RP) | N ⚠️ (dépend du serveur) |
-| 41 | Garry's Mod | V ✅ |
-| 42 | Roblox | ⚠️ (vocal réservé aux comptes vérifiés) |
-| 43 | Dark and Darker | ⚠️ |
-| 44 | Lockdown Protocol | ⚠️ |
-| 45 | Lethal Company | T ✅ |
-| 46 | Phasmophobia | V ✅ |
-| 47 | Content Warning | ⚠️ |
-| 48 | R.E.P.O. | ⚠️ |
-| 49 | PEAK | ⚠️ |
-| 50 | Deep Rock Galactic | ⚠️ |
+| # | Jeu | Touche(s) par défaut | Exécutable(s) |
+|---|---|---|---|
+| 1 | Counter-Strike 2 | K ✅ | `cs2.exe`, `cs2` |
+| 2 | PUBG: Battlegrounds | T ⚠️ | `TslGame.exe` |
+| 3 | Fortnite | — ⚠️ (micro ouvert par défaut) | `FortniteClient-Win64-Shipping.exe` |
+| 4 | Apex Legends | T ✅ | `r5apex.exe`, `r5apex_dx12.exe` |
+| 5 | Valorant | V, U ✅ | `VALORANT-Win64-Shipping.exe` |
+| 6 | Call of Duty: Warzone / Black Ops 7 | Z ⚠️ | `cod.exe` |
+| 7 | Rainbow Six Siege X | U ⚠️ | `RainbowSix*.exe` |
+| 8 | Overwatch 2 | ² / ` ⚠️ | `Overwatch.exe` |
+| 9 | Marvel Rivals | — ⚠️ (micro ouvert par défaut) | `Marvel-Win64-Shipping.exe` |
+| 10 | Battlefield 6 | Verr. Maj ⚠️ | `bf6.exe` |
+| 11 | Deadlock | T ⚠️ | `deadlock.exe` |
+| 12 | The Finals | Z ⚠️ | `Discovery*.exe` |
+| 13 | Delta Force | T ⚠️ | `DeltaForceClient-Win64-Shipping.exe` |
+| 14 | Escape from Tarkov | K ✅ | `EscapeFromTarkov.exe` |
+| 15 | Arc Raiders | Z, B ✅ | `PioneerGame*.exe` |
+| 16 | Hunt: Showdown 1896 | Verr. Maj ⚠️ | `HuntGame.exe` |
+| 17 | Team Fortress 2 | V ✅ | `tf_win64.exe`, `tf.exe`, `tf_linux64` |
+| 18 | Destiny 2 | T ⚠️ (micro ouvert par défaut) | `destiny2.exe` |
+| 19 | Helldivers 2 | Verr. Maj ⚠️ | `helldivers2.exe` |
+| 20 | Naraka: Bladepoint | — ⚠️ | `NarakaBladepoint.exe` |
+| 21 | Squad | V, B, G ⚠️ | `SquadGame.exe` |
+| 22 | Hell Let Loose | C, V, X ✅ | `HLL*-Win64-Shipping.exe` |
+| 23 | Insurgency: Sandstorm | K ⚠️ | `InsurgencyClient-Win64-Shipping.exe` |
+| 24 | Ready or Not | — ⚠️ | `ReadyOrNot*-Win64-Shipping.exe` |
+| 25 | Left 4 Dead 2 | C ✅ | `left4dead2.exe` |
+| 26 | Warframe | C ✅ | `Warframe.x64.exe` |
+| 27 | War Thunder | Ctrl droit ⚠️ | `aces.exe`, `aces` |
+| 28 | World of Tanks | Q ✅ | `WorldOfTanks.exe` |
+| 29 | Marathon | Y, T ✅ | `Marathon.exe` |
+| 30 | Payday 2 | ² / ` ⚠️ | `PAYDAY2.exe`, `payday2_win32_release.exe` |
+| 31 | Arena Breakout: Infinite | Y ⚠️ | `UAGame.exe` |
+| 32 | Dota 2 | G ✅ | `dota2.exe`, `dota2` |
+| 33 | World of Warcraft | ² / ` ✅ | `Wow.exe`, `WowClassic.exe` |
+| 34 | Sea of Thieves | Alt gauche ✅ (micro ouvert par défaut) | `SoTGame.exe` |
+| 35 | Rust | V ✅ | `RustClient.exe` |
+| 36 | DayZ | Verr. Maj ✅ | `DayZ_x64.exe` |
+| 37 | Arma 3 | Verr. Maj ✅ | `arma3_x64.exe`, `arma3.exe` |
+| 38 | Arma Reforger | T, Verr. Maj ⚠️ | `ArmaReforger*.exe` |
+| 39 | GTA Online | N ✅ | `GTA5.exe`, `GTA5_Enhanced.exe` |
+| 40 | FiveM (GTA RP) | N, Alt gauche ⚠️ | `FiveM_*GTAProcess.exe` |
+| 41 | Garry's Mod | X, Souris 5 ✅ | `gmod.exe`, `gmod_win64.exe` |
+| 42 | Roblox | — ⚠️ (micro ouvert par défaut) | `RobloxPlayerBeta.exe` |
+| 43 | Dark and Darker | B ⚠️ | `DungeonCrawler.exe` |
+| 44 | Lockdown Protocol | — ⚠️ (micro ouvert par défaut) | `LockdownProtocol-Win64-Shipping.exe` |
+| 45 | Lethal Company | T ✅ | `Lethal Company.exe` |
+| 46 | Phasmophobia | V, B ✅ | `Phasmophobia.exe` |
+| 47 | Content Warning | V ✅ (micro ouvert par défaut) | `Content Warning.exe` |
+| 48 | R.E.P.O. | V ✅ | `REPO.exe` |
+| 49 | PEAK | V ✅ (micro ouvert par défaut) | `PEAK.exe` |
+| 50 | Deep Rock Galactic | Z ✅ | `FSD-Win*-Shipping.exe` |
 
 ## Points restant à traiter
 
-- Vérifier les touches marquées ⚠️ et les noms d'exécutables de chaque jeu (Windows et Linux/Proton).
-- Publier `discord-voice-rpc` sur GitHub, puis y faire pointer les deux projets (dépendance par chemin local en attendant).
+- Vérifier en jeu les touches marquées ⚠️ (message Discord aux joueurs).
+- Détection des jeux installés : Steam et Epic d'abord, puis Xbox / Microsoft Store.
 - Plus tard : migrer `goxlr-discord-sync` vers `discord-voice-rpc` (entropie DPAPI `b"goxlr-discord-sync"` pour relire les secrets existants).
 - Décider si l'option PipeWire/PulseAudio (Linux) est retenue.

@@ -98,6 +98,12 @@ pub struct Preset {
     pub binding: Binding,
     /// False when the default key still has to be checked in the game.
     pub key_verified: bool,
+    /// Steam apps of the game, to recognise it among the installed games.
+    #[serde(default)]
+    pub steam_app_ids: Vec<u32>,
+    /// The game uses an open microphone until push-to-talk is enabled in its settings.
+    #[serde(default)]
+    pub ptt_disabled_by_default: bool,
 }
 
 impl Preset {
@@ -166,6 +172,16 @@ mod tests {
             assert!(!p.key_verified || !p.binding.keys.is_empty(), "{}", p.id);
             for key in &p.binding.keys {
                 assert!(crate::keys::is_known(key), "{}: unknown key {key}", p.id);
+            }
+        }
+        // A shared executable would make two games' profiles disable each other.
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                let (pa, pb) = (a.to_profile("a".into()), b.to_profile("b".into()));
+                assert!(!pa.shares_executable(&pb), "{} / {}", a.id, b.id);
+                for exe in &a.binding.executables {
+                    assert!(!pb.matches(exe), "{} matches {exe} of {}", b.id, a.id);
+                }
             }
         }
     }
