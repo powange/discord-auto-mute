@@ -258,6 +258,15 @@ impl Settings {
         Ok(id)
     }
 
+    /// Adds a profile for an installed game without preset: its executables are
+    /// known, its key not yet (it turns on once the user adds one).
+    pub fn add_game(&mut self, name: &str, executables: &[String]) -> Result<String, ProfileError> {
+        let id = self.add_custom(name)?;
+        let i = self.index(&id)?;
+        self.profiles[i].binding.executables = executables.to_vec();
+        Ok(id)
+    }
+
     /// Replaces a profile with the edited copy from the settings window.
     pub fn update(&mut self, edited: Profile) -> Result<(), ProfileError> {
         let i = self.index(&edited.id)?;
@@ -413,6 +422,19 @@ mod tests {
         s.update(p).unwrap();
         assert!(!s.profile(&id).unwrap().enabled); // the user's choice afterwards
         assert_eq!(s.reset_to_preset(&id), Err(ProfileError::NotFromPreset));
+    }
+
+    #[test]
+    fn installed_games_without_preset() {
+        let mut s = Settings::default();
+        let id = s.add_game("My Game", &["MyGame.exe".into()]).unwrap();
+        let profile = s.profile(&id).unwrap().clone();
+        assert_eq!(profile.binding.executables, vec!["MyGame.exe".to_string()]);
+        assert!(!profile.enabled && profile.preset.is_none());
+        let mut with_key = profile;
+        with_key.binding.keys = vec!["KeyV".into()];
+        s.update(with_key).unwrap();
+        assert!(s.profile(&id).unwrap().enabled);
     }
 
     #[test]

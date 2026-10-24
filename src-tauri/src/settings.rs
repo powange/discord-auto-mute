@@ -20,6 +20,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::discord::DiscordState;
+use crate::games::{self, InstalledGame};
 use crate::host::{secrets, Event, Host};
 
 /// The settings in use, and a revision the window compares to notice changes made
@@ -44,6 +45,39 @@ impl Store {
     fn revision(&self) -> u64 {
         self.revision.load(Ordering::SeqCst)
     }
+}
+
+/// The last scan of the installed games (None: not scanned yet).
+#[derive(Default)]
+pub struct Games(Mutex<Option<Vec<InstalledGame>>>);
+
+async fn installed(app: &AppHandle, rescan: bool) -> Vec<InstalledGame> {
+    if !rescan {
+        if let Some(games) = app.state::<Games>().0.lock().unwrap().clone() {
+            return games;
+        }
+    }
+    let games = tauri::async_runtime::spawn_blocking(games::scan)
+        .await
+        .unwrap_or_default();
+    *app.state::<Games>().0.lock().unwrap() = Some(games.clone());
+    games
+}
+
+/// Steam and Epic games of this computer (scanned again on each call).
+#[tauri::command]
+pub async fn installed_games(app: AppHandle) -> Vec<games::GameView> {
+    games::views(&installed(&app, true).await)
+}
+
+/// Profile id -> icon (data URL), for the profiles that have one.
+#[tauri::command]
+pub async fn profile_icons(app: AppHandle) -> HashMap<String, String> {
+    let games = installed(&app, false).await;
+    let profiles = app.state::<Store>().get().profiles;
+    tauri::async_runtime::spawn_blocking(move || games::profile_icons(&profiles, &games))
+        .await
+        .unwrap_or_default()
 }
 
 /// How long the user has to click into Discord's keybind field.
@@ -178,12 +212,29 @@ pub fn get_state(host: tauri::State<'_, Host>, store: tauri::State<'_, Store>) -
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProfileAction {
-    AddPreset { preset: String },
-    AddCustom { name: String },
-    Update { profile: Profile },
-    Remove { id: String },
-    SetEnabled { id: String, enabled: bool },
-    Reset { id: String },
+    AddPreset {
+        preset: String,
+    },
+    AddCustom {
+        name: String,
+    },
+    AddGame {
+        name: String,
+        executables: Vec<String>,
+    },
+    Update {
+        profile: Profile,
+    },
+    Remove {
+        id: String,
+    },
+    SetEnabled {
+        id: String,
+        enabled: bool,
+    },
+    Reset {
+        id: String,
+    },
 }
 
 /// Cleans what the window sends: trimmed, deduplicated, known keys only.
@@ -214,6 +265,9 @@ pub fn profile_action(app: AppHandle, action: ProfileAction) -> Result<Settings,
         match action {
             ProfileAction::AddPreset { preset } => settings.add_from_preset(&preset).map(drop),
             ProfileAction::AddCustom { name } => settings.add_custom(&name).map(drop),
+            ProfileAction::AddGame { name, executables } => {
+                settings.add_game(&name, &executables).map(drop)
+            }
             ProfileAction::Update { profile } => settings.update(clean(profile)?),
             ProfileAction::Remove { id } => settings.remove(&id),
             ProfileAction::SetEnabled { id, enabled } => settings.set_enabled(&id, enabled),

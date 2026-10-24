@@ -12,6 +12,8 @@ let capture = null; // key capture in progress: { kind: "profile" | "shortcut", 
 let shortcutDraft = null; // shortcut keys being edited in the Discord tab
 let revision = 0; // of `settings`: get_state reports changes made elsewhere (tray menu)
 let saving = Promise.resolve(); // profile edits, one after the other
+let icons = {}; // profile id -> icon (data URL)
+let installed = null; // installed games, null while searching
 
 const t = (text, values = {}) => {
   let out = (data && data.texts[text]) || text;
@@ -66,6 +68,23 @@ function chip(text, onRemove, className = "") {
     node.classList.add("static");
   }
   return node;
+}
+
+/** The game's icon, or its initial on a tile. */
+function gameIcon(url, name) {
+  if (url) return el("img", { className: "game-icon", src: url, alt: "" });
+  return el("span", { className: "game-icon", textContent: (name.trim()[0] || "?").toUpperCase(), ariaHidden: "true" });
+}
+
+async function loadIcons() {
+  try {
+    icons = await invoke("profile_icons");
+    renderList();
+    const profile = currentProfile();
+    if (profile) $("editor_icon").replaceChildren(gameIcon(icons[profile.id], profile.name));
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 function showError(id, message) {
@@ -163,7 +182,7 @@ function currentProfile() {
 function renderList() {
   const items = settings.profiles.map((p) => {
     const li = el("li", { className: p.enabled ? "" : "off" },
-      el("span", { className: "dot" }), el("span", { className: "name", textContent: p.name }));
+      gameIcon(icons[p.id], p.name), el("span", { className: "name", textContent: p.name }), el("span", { className: "dot" }));
     li.dataset.id = p.id;
     li.setAttribute("aria-selected", p.id === selected);
     li.title = p.enabled ? p.name : `${p.name} (${t("disabled")})`;
@@ -198,10 +217,12 @@ function renderEditor() {
   showError("adder_error", "");
   if (!profile) {
     renderPresets();
+    renderInstalled();
     return;
   }
   $("name").value = profile.name;
   $("enabled").checked = profile.enabled;
+  $("editor_icon").replaceChildren(gameIcon(icons[profile.id], profile.name));
 
   const preset = profile.preset && data.presets.find((p) => p.id === profile.preset.id);
   let info = preset ? t("Preset: {name}", { name: preset.name }) : t("Custom profile");
@@ -282,7 +303,61 @@ async function saveProfile(change) {
   if (ok) {
     renderList();
     renderEditor();
+    loadIcons(); // the executables may have changed
   }
+}
+
+/** A profile already covers this installed game (its preset, or one of its executables). */
+function profileFor(game) {
+  return settings.profiles.find((p) =>
+    (game.preset && p.preset && p.preset.id === game.preset)
+    || game.executables.some((exe) => p.executables.some((pattern) => wildcard(pattern, exe))));
+}
+
+function wildcard(pattern, text) {
+  const escaped = pattern.toLowerCase().replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(text.toLowerCase());
+}
+
+async function loadInstalled() {
+  installed = null;
+  renderInstalled();
+  try {
+    installed = await invoke("installed_games");
+  } catch (e) {
+    console.error(e);
+    installed = [];
+  }
+  renderInstalled();
+  loadIcons(); // the scan may have found icons for existing profiles
+}
+
+function renderInstalled() {
+  if (installed === null) {
+    $("installed_status").textContent = t("Searching for Steam and Epic games…");
+    $("installed").replaceChildren();
+    return;
+  }
+  $("installed_status").textContent = installed.length ? "" : t("No Steam or Epic game found on this computer.");
+  $("installed").replaceChildren(...installed.map((game) => {
+    const existing = profileFor(game);
+    const kind = game.preset ? t("preset") : t("to set up: choose its key");
+    const add = el("button", { textContent: existing ? t("Added") : t("Add"), disabled: Boolean(existing) });
+    add.addEventListener("click", async () => {
+      const before = new Set(settings.profiles.map((p) => p.id));
+      const action = game.preset
+        ? { kind: "add_preset", preset: game.preset }
+        : { kind: "add_game", name: game.name, executables: game.executables.slice(0, 1) };
+      if (await profileAction(action)) {
+        const created = settings.profiles.find((p) => !before.has(p.id));
+        select(created ? created.id : null);
+        loadIcons();
+      }
+    });
+    return el("li", {}, gameIcon(game.icon, game.name), el("span", { className: "name", textContent: game.name }),
+      el("span", { className: "badge", textContent: game.store === "steam" ? "Steam" : "Epic" }),
+      el("span", { className: "note", textContent: kind }), add);
+  }));
 }
 
 function renderPresets() {
@@ -300,6 +375,7 @@ function renderPresets() {
         if (await profileAction({ kind: "add_preset", preset: preset.id })) {
           const created = settings.profiles.find((p) => !before.has(p.id));
           select(created ? created.id : null);
+          loadIcons();
         }
       });
       return el("li", {}, el("span", { className: "name", textContent: preset.name }), details, add);
@@ -470,6 +546,8 @@ async function load() {
   selected = settings.profiles.length ? settings.profiles[0].id : null;
   renderList();
   renderEditor();
+  if (!selected) loadInstalled();
+  loadIcons();
   selectTab(sessionStorage.getItem("tab") || location.hash.slice(1) || "profiles");
   sessionStorage.removeItem("tab");
   await poll();
@@ -477,7 +555,10 @@ async function load() {
 }
 
 for (const b of document.querySelectorAll(".tabs button")) b.addEventListener("click", () => selectTab(b.dataset.tab));
-$("add").addEventListener("click", () => select(null));
+$("add").addEventListener("click", () => {
+  select(null);
+  loadInstalled();
+});
 $("search").addEventListener("input", renderPresets);
 $("add_custom").addEventListener("click", async () => {
   const before = new Set(settings.profiles.map((p) => p.id));

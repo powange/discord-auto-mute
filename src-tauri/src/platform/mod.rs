@@ -1,5 +1,8 @@
 //! What differs between systems: listening to the keyboard and mouse globally,
 //! the process in the foreground and synthetic key presses for Discord's shortcut.
+//!
+//! `foreground_executable` returns the program's path (or argv[0] on Linux, a Windows
+//! path for Wine games); its `file_name` is what profiles match.
 
 /// Receives (key code, down) for every key or mouse button press, from any thread.
 pub type KeySink = Box<dyn Fn(&'static str, bool) + Send + Sync>;
@@ -15,7 +18,7 @@ pub use linux::{foreground_executable, listen, send_keys};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{foreground_executable, listen, send_keys};
+pub use windows::{exe_icon_png, foreground_executable, listen, registry_string, send_keys};
 
 /// File name of a path written with / or \ (Wine processes report Windows paths).
 pub fn file_name(path: &str) -> &str {

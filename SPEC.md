@@ -65,6 +65,14 @@ Même organisation que `goxlr-discord-sync` :
 - Les mises à jour de la liste des préréglages **n'écrasent jamais** les profils modifiés par l'utilisateur ; seuls les profils non modifiés sont mis à jour.
 - Plusieurs profils peuvent exister pour un même jeu, mais **un seul peut être activé à la fois** : en activer un désactive automatiquement les autres.
 
+## Jeux installés et icônes
+
+- « Ajouter un jeu » liste d'abord les jeux **installés sur l'ordinateur** :
+  - Steam : `libraryfolders.vdf` puis `appmanifest_*.acf` de chaque bibliothèque (Windows : dossier de Steam lu dans le registre ; Linux : installation classique, Flatpak, Snap). Les outils (Proton, Steam Linux Runtime, Steamworks) sont ignorés.
+  - Epic : manifestes `*.item` de l'Epic Games Launcher (Windows), `installed.json` de Heroic (Linux).
+- Un jeu installé est rapproché d'un préréglage par son AppID Steam, sinon par ses exécutables. Sans préréglage, le profil est créé avec l'exécutable le plus probable du dossier (aides, désinstalleurs, rapports de crash écartés ; binaires Unreal « -Shipping » puis le plus gros fichier en premier), et s'active dès qu'une touche est ajoutée.
+- Icônes : cache d'images de Steam (`appcache/librarycache`) ; sous Windows, icône extraite de l'exécutable (jeux installés, et tout jeu vu au premier plan) et gardée dans `icons/`. Sans icône, une tuile avec l'initiale du jeu.
+
 ## Comportement
 
 - La touche est **seulement écoutée, jamais bloquée** : le jeu la reçoit normalement.

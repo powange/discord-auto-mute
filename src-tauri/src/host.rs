@@ -47,6 +47,7 @@ const QUIT_WAIT: Duration = Duration::from_secs(3);
 #[derive(Debug)]
 pub enum Event {
     Key(&'static str, bool),
+    /// Path (or name) of the program in the foreground.
     Foreground(Option<String>),
     Settings {
         settings: Settings,
@@ -272,7 +273,13 @@ async fn run(
                 code: key.into(),
                 down,
             }),
-            Event::Foreground(exe) => {
+            Event::Foreground(path) => {
+                #[cfg(windows)]
+                if let Some(path) = path.clone() {
+                    // Kept for the profile list (games of other launchers).
+                    std::thread::spawn(move || crate::games::exe_icon(std::path::Path::new(&path)));
+                }
+                let exe = path.map(|p| platform::file_name(&p).to_string());
                 let suggested = |e: &&String| {
                     Some(*e) != own_exe.as_ref()
                         && !NOT_GAMES.iter().any(|n| n.eq_ignore_ascii_case(e))

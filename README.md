@@ -9,6 +9,7 @@ A tray application for Windows and Linux: each game has a profile with its voice
 - One profile per game: name, game executables, one or more voice keys (keyboard or mouse buttons middle, 4 and 5), and a mode:
   - **Hold**: Discord is muted while the key is held down;
   - **Toggle**: each press mutes or unmutes Discord.
+- Installed games detected: Steam (Windows, Linux, Flatpak, Snap) and Epic (Windows, Heroic on Linux), with their icons; games with a preset are ready in one click.
 - 50 presets for the most played multiplayer games with voice chat. Every field stays editable, and "Restore the defaults" brings the preset back.
 - A profile only applies while its game is in the foreground. Leaving the game, pausing or quitting gives the microphone back.
 - The application only unmutes what it muted: with the Application method or the default "Push to Mute" keybind, a mute you set yourself in Discord is left alone. If the application stops while Discord is muted (crash, forced exit), Discord is unmuted at the next start.

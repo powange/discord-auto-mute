@@ -1,5 +1,7 @@
 //! Windows: low-level keyboard and mouse hooks, GetForegroundWindow, SendInput.
 
+use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use dam_core::keys;
@@ -129,8 +131,7 @@ pub fn foreground_executable() -> Option<String> {
         if ok == 0 {
             return None;
         }
-        let path = String::from_utf16_lossy(&buffer[..size as usize]);
-        Some(super::file_name(&path).to_string())
+        Some(String::from_utf16_lossy(&buffer[..size as usize]))
     }
 }
 
@@ -178,4 +179,115 @@ pub fn send_keys(codes: &[String], down: bool) -> Result<(), String> {
             std::io::Error::last_os_error()
         ))
     }
+}
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(Some(0)).collect()
+}
+
+/// A REG_SZ value of HKEY_CURRENT_USER.
+pub fn registry_string(subkey: &str, value: &str) -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let (subkey, value) = (wide(subkey), wide(value));
+    let mut buffer = vec![0u16; 1024];
+    let mut bytes = (buffer.len() * 2) as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buffer.as_mut_ptr().cast(),
+            &mut bytes,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let len = (bytes as usize / 2).saturating_sub(1); // without the final NUL
+    Some(String::from_utf16_lossy(&buffer[..len]))
+}
+
+/// The icon of an executable, 64×64, as a PNG.
+pub fn exe_icon_png(path: &Path) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, BITMAPINFO, BITMAPINFOHEADER,
+        BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DestroyIcon, GetIconInfo, PrivateExtractIconsW, ICONINFO,
+    };
+    const SIZE: i32 = 64;
+    let file: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut icon = std::ptr::null_mut();
+    let count = unsafe {
+        PrivateExtractIconsW(
+            file.as_ptr(),
+            0,
+            SIZE,
+            SIZE,
+            &mut icon,
+            std::ptr::null_mut(),
+            1,
+            0,
+        )
+    };
+    if count == 0 || count == u32::MAX || icon.is_null() {
+        return None;
+    }
+    let mut pixels = vec![0u8; (SIZE * SIZE * 4) as usize];
+    let lines = unsafe {
+        let mut info: ICONINFO = std::mem::zeroed();
+        if GetIconInfo(icon, &mut info) == 0 {
+            DestroyIcon(icon);
+            return None;
+        }
+        let dc = CreateCompatibleDC(std::ptr::null_mut());
+        let mut bitmap: BITMAPINFO = std::mem::zeroed();
+        bitmap.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bitmap.bmiHeader.biWidth = SIZE;
+        bitmap.bmiHeader.biHeight = -SIZE; // top-down rows
+        bitmap.bmiHeader.biPlanes = 1;
+        bitmap.bmiHeader.biBitCount = 32;
+        bitmap.bmiHeader.biCompression = BI_RGB;
+        let lines = GetDIBits(
+            dc,
+            info.hbmColor,
+            0,
+            SIZE as u32,
+            pixels.as_mut_ptr().cast(),
+            &mut bitmap,
+            DIB_RGB_COLORS,
+        );
+        DeleteDC(dc);
+        DeleteObject(info.hbmColor as _);
+        DeleteObject(info.hbmMask as _);
+        DestroyIcon(icon);
+        lines
+    };
+    if lines == 0 {
+        return None;
+    }
+    for pixel in pixels.chunks_mut(4) {
+        pixel.swap(0, 2); // BGRA -> RGBA
+    }
+    if pixels.chunks(4).all(|p| p[3] == 0) {
+        // Old icons have no alpha channel: opaque.
+        for pixel in pixels.chunks_mut(4) {
+            pixel[3] = 255;
+        }
+    }
+    let mut png = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png, SIZE as u32, SIZE as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .ok()?
+            .write_image_data(&pixels)
+            .ok()?;
+    }
+    Some(png)
 }

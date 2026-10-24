@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod discord;
+mod games;
 mod host;
 mod platform;
 mod settings;
@@ -42,9 +43,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::PendingUpdate::default())
+        .manage(settings::Games::default())
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
             settings::get_state,
+            settings::installed_games,
+            settings::profile_icons,
             settings::profile_action,
             settings::save_general,
             settings::check_credentials,

@@ -40,14 +40,19 @@ section p { margin: 0; }
 .list li[aria-selected="true"] { background: var(--selected); }
 .list li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list li.off .name { color: var(--muted); }
-.list li .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
+.list li .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; order: 2; }
+.game-icon { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; flex: none; background: var(--chip);
+  display: inline-grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--muted); }
+#editor_icon .game-icon { width: 36px; height: 36px; border-radius: 8px; font-size: 18px; }
+.presets .badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; white-space: nowrap; }
 .list li.active .dot { background: var(--accent); }
 .list li.muting .dot { background: var(--bad); }
 .live { font-size: 12px; color: var(--muted); }
 .editor { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; overflow: auto; min-height: 0; }
 .editor .title { font-size: 18px; font-weight: 600; }
 .presets { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px;
-  max-height: 320px; overflow: auto; }
+  max-height: 320px; overflow: auto; flex-shrink: 0; }
+.presets:empty, .note:empty { display: none; }
 .presets li { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); }
 .presets li:last-child { border-bottom: 0; }
 .presets li .name { flex: 1; }

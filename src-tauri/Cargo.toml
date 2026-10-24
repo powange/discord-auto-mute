@@ -10,6 +10,7 @@ publish = false
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
+base64 = "0.22"
 dam-core = { path = "../crates/core" }
 discord-voice-rpc = { git = "https://github.com/powange/discord-voice-rpc" }
 log = "0.4"
@@ -26,8 +27,11 @@ tauri-plugin-updater = "2.14"
 tokio = { version = "1.54", features = ["rt", "sync", "time", "macros"] }
 
 [target.'cfg(windows)'.dependencies]
+png = "0.17"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Registry",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",

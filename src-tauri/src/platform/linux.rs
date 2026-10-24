@@ -237,13 +237,13 @@ fn with_x11<T>(
 }
 
 /// Wine names its processes after the Windows executable: argv[0] is "C:\…\game.exe".
-fn process_name(pid: u32) -> Option<String> {
+fn process_path(pid: u32) -> Option<String> {
     let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let argv0 = cmdline.split(|b| *b == 0).next().unwrap_or_default();
     let argv0 = String::from_utf8_lossy(argv0);
-    let name = super::file_name(argv0.trim());
-    if !name.is_empty() {
-        return Some(name.to_string());
+    let argv0 = argv0.trim();
+    if !super::file_name(argv0).is_empty() {
+        return Some(argv0.to_string());
     }
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
     Some(comm.trim().to_string()).filter(|c| !c.is_empty())
@@ -251,7 +251,7 @@ fn process_name(pid: u32) -> Option<String> {
 
 pub fn foreground_executable() -> Option<String> {
     match with_x11(|x| x.active_pid()) {
-        Ok(pid) => process_name(pid?),
+        Ok(pid) => process_path(pid?),
         Err(e) => {
             log::debug!("Foreground window unknown: {e}");
             None
@@ -286,8 +286,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn own_process_name() {
-        let name = process_name(std::process::id()).unwrap();
-        assert!(name.starts_with("discord_auto_mute"), "{name}");
+    fn own_process_path() {
+        let path = process_path(std::process::id()).unwrap();
+        assert!(
+            super::super::file_name(&path).starts_with("discord_auto_mute"),
+            "{path}"
+        );
     }
 }

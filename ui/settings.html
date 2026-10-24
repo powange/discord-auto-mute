@@ -26,6 +26,10 @@
 
     <div class="editor" id="adder" hidden>
       <h2 data-i18n="Add a game">Add a game</h2>
+      <h3 data-i18n="Installed on this computer">Installed on this computer</h3>
+      <p id="installed_status" class="note"></p>
+      <ul id="installed" class="presets"></ul>
+      <h3 data-i18n="All presets">All presets</h3>
       <input id="search" type="search" autocomplete="off" spellcheck="false" data-i18n-placeholder="Search a game…" placeholder="Search a game…">
       <ul id="presets" class="presets"></ul>
       <h3 data-i18n="Game not listed">Game not listed</h3>
@@ -38,6 +42,7 @@
 
     <div class="editor" id="editor" hidden>
       <div class="row">
+        <span id="editor_icon"></span>
         <input id="name" class="title" autocomplete="off" spellcheck="false" aria-label="Name">
         <label class="switch"><input type="checkbox" id="enabled"> <span data-i18n="Enabled">Enabled</span></label>
       </div>
