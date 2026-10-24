@@ -36,6 +36,7 @@ pub struct InstalledGame {
     pub main_exe: Option<PathBuf>,
 }
 
+#[cfg(not(windows))]
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default())
 }
