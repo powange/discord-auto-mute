@@ -17,6 +17,26 @@ use crate::platform;
 
 const FOREGROUND_POLL: Duration = Duration::from_millis(250);
 const RECENT_MAX: usize = 15;
+/// Foreground programs never offered as a game executable.
+const NOT_GAMES: &[&str] = &[
+    "explorer.exe",
+    "SnippingTool.exe",
+    "ScreenClippingHost.exe",
+    "SearchHost.exe",
+    "SearchApp.exe",
+    "StartMenuExperienceHost.exe",
+    "ShellExperienceHost.exe",
+    "ShellHost.exe",
+    "ApplicationFrameHost.exe",
+    "LockApp.exe",
+    "Taskmgr.exe",
+    "SystemSettings.exe",
+    "Discord.exe",
+    "DiscordPTB.exe",
+    "DiscordCanary.exe",
+    "Discord",
+    "Vesktop",
+];
 /// How long a "Toggle Mute" shortcut stays down: long enough for Discord to see it.
 const TAP: Duration = Duration::from_millis(40);
 
@@ -182,7 +202,11 @@ async fn run(
                 down,
             }),
             Event::Foreground(exe) => {
-                if let Some(exe) = exe.as_ref().filter(|e| Some(*e) != own_exe.as_ref()) {
+                let suggested = |e: &&String| {
+                    Some(*e) != own_exe.as_ref()
+                        && !NOT_GAMES.iter().any(|n| n.eq_ignore_ascii_case(e))
+                };
+                if let Some(exe) = exe.as_ref().filter(suggested) {
                     let mut s = shared.lock().unwrap();
                     s.recent.retain(|r| r != exe);
                     s.recent.insert(0, exe.clone());

@@ -114,8 +114,12 @@ function renderLive() {
   const [discord, kind] = discordText();
   $("discord_state").textContent = discord;
   $("discord_state").className = kind;
+  // Only when it changed: rebuilding the list closes the suggestions while they are open.
   const recent = state ? state.recent : [];
-  $("recent").replaceChildren(...recent.map((exe) => el("option", { value: exe })));
+  const shown = [...$("recent").children].map((o) => o.value);
+  if (recent.join("\n") !== shown.join("\n")) {
+    $("recent").replaceChildren(...recent.map((exe) => el("option", { value: exe })));
+  }
   for (const li of $("profiles").children) {
     const active = status && status.profile && status.profile[0] === li.dataset.id;
     li.classList.toggle("active", Boolean(active));
