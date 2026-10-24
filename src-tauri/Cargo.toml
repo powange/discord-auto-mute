@@ -1,0 +1,40 @@
+[package]
+name = "discord-auto-mute"
+description = "Mutes Discord while you talk in a game's voice chat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+dam-core = { path = "../crates/core" }
+discord-voice-rpc = { git = "https://github.com/powange/discord-voice-rpc" }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.12", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2.7"
+tauri-plugin-log = "2.10"
+tauri-plugin-notification = "2.7"
+tauri-plugin-opener = "2.7"
+tauri-plugin-single-instance = "2.5"
+tokio = { version = "1.54", features = ["rt", "sync", "time", "macros"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13"
+x11rb = { version = "0.13", features = ["xtest"] }
+
+[dev-dependencies]
+regex = "1"

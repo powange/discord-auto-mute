@@ -1,0 +1,172 @@
+//! Windows: low-level keyboard and mouse hooks, GetForegroundWindow, SendInput.
+
+use std::sync::OnceLock;
+
+use dam_core::keys;
+use windows_sys::Win32::Foundation::{CloseHandle, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
+    KEYEVENTF_KEYUP, MAPVK_VSC_TO_VK_EX,
+};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, SetWindowsHookExW,
+    KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, LLMHF_INJECTED, MSG, MSLLHOOKSTRUCT,
+    WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_SYSKEYDOWN,
+    WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+};
+
+use super::KeySink;
+
+static SINK: OnceLock<KeySink> = OnceLock::new();
+
+/// Hook procedures run on the thread that installed them, between two messages:
+/// they only forward the event and return at once (Windows drops slow hooks).
+unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let info = &*(lparam as *const KBDLLHOOKSTRUCT);
+        // Injected: our own shortcut for Discord, or another program's.
+        if info.flags & LLKHF_INJECTED == 0 {
+            let down = match wparam as u32 {
+                WM_KEYDOWN | WM_SYSKEYDOWN => Some(true),
+                WM_KEYUP | WM_SYSKEYUP => Some(false),
+                _ => None,
+            };
+            let extended = info.flags & LLKHF_EXTENDED != 0;
+            if let (Some(down), Ok(scan)) = (down, u16::try_from(info.scanCode)) {
+                if let (Some(key), Some(sink)) = (keys::from_scancode(scan, extended), SINK.get()) {
+                    sink(key, down);
+                }
+            }
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let info = &*(lparam as *const MSLLHOOKSTRUCT);
+        if info.flags & LLMHF_INJECTED == 0 {
+            let x_button = || match info.mouseData >> 16 {
+                1 => Some("Mouse4"),
+                2 => Some("Mouse5"),
+                _ => None,
+            };
+            let event = match wparam as u32 {
+                WM_MBUTTONDOWN => Some(("MouseMiddle", true)),
+                WM_MBUTTONUP => Some(("MouseMiddle", false)),
+                WM_XBUTTONDOWN => x_button().map(|k| (k, true)),
+                WM_XBUTTONUP => x_button().map(|k| (k, false)),
+                _ => None,
+            };
+            if let (Some((key, down)), Some(sink)) = (event, SINK.get()) {
+                sink(key, down);
+            }
+        }
+    }
+    CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+/// Installs the hooks on a dedicated thread with its own message loop.
+pub fn listen(sink: KeySink) -> Result<(), String> {
+    if SINK.set(sink).is_err() {
+        return Err("already listening".into());
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("input-hooks".into())
+        .spawn(move || unsafe {
+            let module = GetModuleHandleW(std::ptr::null());
+            let keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
+            let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+            if keyboard.is_null() || mouse.is_null() {
+                let _ = tx.send(Err(format!(
+                    "SetWindowsHookEx failed ({})",
+                    std::io::Error::last_os_error()
+                )));
+                return;
+            }
+            let _ = tx.send(Ok(()));
+            let mut msg: MSG = std::mem::zeroed();
+            while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {}
+        })
+        .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())?
+}
+
+pub fn foreground_executable() -> Option<String> {
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_null() {
+            return None;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(window, &mut pid);
+        if pid == 0 {
+            return None;
+        }
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return None;
+        }
+        let mut buffer = [0u16; 1024];
+        let mut size = buffer.len() as u32;
+        let ok =
+            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size);
+        CloseHandle(process);
+        if ok == 0 {
+            return None;
+        }
+        let path = String::from_utf16_lossy(&buffer[..size as usize]);
+        Some(super::file_name(&path).to_string())
+    }
+}
+
+/// Presses (in order) or releases (in reverse order) the keys.
+pub fn send_keys(codes: &[String], down: bool) -> Result<(), String> {
+    let mut inputs = Vec::with_capacity(codes.len());
+    for code in codes {
+        let (scan, extended) =
+            keys::to_scancode(code).ok_or_else(|| format!("cannot send {code}"))?;
+        let full = if extended { 0xE000 | scan } else { scan };
+        // Virtual key and scan code both: hooks (Discord's included) read one or the other.
+        let vk = unsafe { MapVirtualKeyW(u32::from(full), MAPVK_VSC_TO_VK_EX) } as u16;
+        let mut flags = if down { 0 } else { KEYEVENTF_KEYUP };
+        if extended {
+            flags |= KEYEVENTF_EXTENDEDKEY;
+        }
+        inputs.push(INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: scan,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        });
+    }
+    if !down {
+        inputs.reverse();
+    }
+    let sent = unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<INPUT>() as i32,
+        )
+    };
+    if sent as usize == inputs.len() {
+        Ok(())
+    } else {
+        Err(format!(
+            "SendInput failed ({})",
+            std::io::Error::last_os_error()
+        ))
+    }
+}

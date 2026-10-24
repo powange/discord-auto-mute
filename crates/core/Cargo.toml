@@ -1,0 +1,17 @@
+[package]
+name = "dam-core"
+description = "Discord Auto-Mute engine: profiles, presets, mute rules, settings, translations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+discord-voice-rpc = { git = "https://github.com/powange/discord-voice-rpc" }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

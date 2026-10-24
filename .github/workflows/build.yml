@@ -1,0 +1,127 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  TAURI_CLI_VERSION: 2.12.3
+  LINUX_DEPS: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Version matches the tag
+      if: startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux'
+      run: |
+        version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "discord-auto-mute") | .version')
+        if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          echo "::error::Tag $GITHUB_REF_NAME does not match the Cargo version $version"
+          exit 1
+        fi
+
+    - name: Format
+      if: runner.os == 'Linux'
+      run: cargo fmt --all --check
+
+    - name: Clippy
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Tests
+      run: cargo test --workspace
+
+  # Installers to try (every push), and the release assets (version tags).
+  bundle:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Linux build dependencies
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 22
+
+    - name: Bundle
+      shell: bash
+      run: |
+        npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build
+        mkdir dist
+        if [ "$RUNNER_OS" = Windows ]; then
+          cp target/release/bundle/nsis/*-setup.exe dist/Discord_Auto-Mute_Setup.exe
+        else
+          cp target/release/bundle/deb/*.deb dist/discord-auto-mute_amd64.deb
+          cp target/release/bundle/appimage/*.AppImage dist/Discord_Auto-Mute_amd64.AppImage
+        fi
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: bundle-${{ runner.os }}
+        path: dist/*
+        if-no-files-found: error
+
+  release:
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # create the GitHub release
+    steps:
+    - uses: actions/download-artifact@v7
+      with:
+        pattern: bundle-*
+        merge-multiple: true
+        path: dist
+
+    - name: Checksums
+      working-directory: dist
+      run: sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+    - uses: softprops/action-gh-release@v3
+      with:
+        files: dist/*
+        generate_release_notes: true
+        body: |
+          ## Installation
+          **Windows:** download `Discord_Auto-Mute_Setup.exe` and run it.
+          **Linux (x86_64):** `discord-auto-mute_amd64.deb` (Debian, Ubuntu) or `Discord_Auto-Mute_amd64.AppImage`.
+          On Linux, add your user to the `input` group so the keys can be read: `sudo usermod -aG input $USER`, then log out and back in.
+
+          The Windows setup is not code signed: on a first download, SmartScreen may ask you to click **More info › Run anyway**.
+          Verify the download with `SHA256SUMS.txt`.

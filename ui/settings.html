@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Discord Auto-Mute</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="profiles" aria-selected="true" data-i18n="Profiles">Profiles</button>
+  <button role="tab" data-tab="discord">Discord</button>
+  <button role="tab" data-tab="general" data-i18n="General">General</button>
+</nav>
+
+<main>
+  <p id="problem" class="banner bad" hidden role="status"></p>
+
+  <section id="tab-profiles" class="profiles">
+    <aside class="list">
+      <div class="live" id="live"></div>
+      <ul id="profiles"></ul>
+      <p id="no-profiles" class="note" hidden data-i18n="No profile yet: add the games you play.">No profile yet: add the games you play.</p>
+      <button id="add" class="primary" data-i18n="Add a game">Add a game</button>
+    </aside>
+
+    <div class="editor" id="adder" hidden>
+      <h2 data-i18n="Add a game">Add a game</h2>
+      <input id="search" type="search" autocomplete="off" spellcheck="false" data-i18n-placeholder="Search a game…" placeholder="Search a game…">
+      <ul id="presets" class="presets"></ul>
+      <h3 data-i18n="Game not listed">Game not listed</h3>
+      <div class="row">
+        <input id="custom_name" autocomplete="off" data-i18n-placeholder="Profile name" placeholder="Profile name">
+        <button id="add_custom" data-i18n="Create">Create</button>
+      </div>
+      <p id="adder_error" class="error" role="alert"></p>
+    </div>
+
+    <div class="editor" id="editor" hidden>
+      <div class="row">
+        <input id="name" class="title" autocomplete="off" spellcheck="false" aria-label="Name">
+        <label class="switch"><input type="checkbox" id="enabled"> <span data-i18n="Enabled">Enabled</span></label>
+      </div>
+      <p id="preset_info" class="note"></p>
+
+      <h3 data-i18n="Game executables">Game executables</h3>
+      <p class="note" data-i18n="The profile applies while one of these programs is in the foreground. * matches any text.">The profile applies while one of these programs is in the foreground. * matches any text.</p>
+      <div class="chips" id="executables"></div>
+      <div class="row">
+        <input id="new_exe" list="recent" autocomplete="off" spellcheck="false" data-i18n-placeholder="e.g. SoTGame.exe" placeholder="e.g. SoTGame.exe">
+        <datalist id="recent"></datalist>
+        <button id="add_exe" data-i18n="Add">Add</button>
+      </div>
+      <p class="note" data-i18n="Tip: start the game, come back here and pick it from the suggestions.">Tip: start the game, come back here and pick it from the suggestions.</p>
+
+      <h3 data-i18n="Game voice keys">Game voice keys</h3>
+      <p class="note" data-i18n="The keys the game uses to talk (push-to-talk). Any of them mutes Discord.">The keys the game uses to talk (push-to-talk). Any of them mutes Discord.</p>
+      <div class="chips" id="keys"></div>
+      <div class="row">
+        <button id="add_key" data-i18n="Add a key">Add a key</button>
+        <span id="capture_hint" class="note" hidden data-i18n="Press a key or a mouse button (middle, 4, 5)… Escape cancels.">Press a key or a mouse button (middle, 4, 5)… Escape cancels.</span>
+      </div>
+
+      <h3 data-i18n="Mode">Mode</h3>
+      <div class="checks">
+        <label><input type="radio" name="mode" value="hold"> <span data-i18n="Hold: Discord is muted while the key is held down">Hold: Discord is muted while the key is held down</span></label>
+        <label><input type="radio" name="mode" value="toggle"> <span data-i18n="Toggle: each press mutes or unmutes Discord">Toggle: each press mutes or unmutes Discord</span></label>
+      </div>
+
+      <p id="profile_error" class="error" role="alert"></p>
+      <div class="row actions">
+        <button id="reset" data-i18n="Restore the defaults">Restore the defaults</button>
+        <span class="spacer"></span>
+        <button id="remove" class="danger" data-i18n="Delete the profile">Delete the profile</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-discord" class="page" hidden>
+    <h3 data-i18n="How to mute Discord">How to mute Discord</h3>
+    <div class="checks">
+      <label><input type="radio" name="method" value="shortcut"> <span data-i18n="Keyboard shortcut: press a shortcut set in Discord">Keyboard shortcut: press a shortcut set in Discord</span></label>
+      <label><input type="radio" name="method" value="rpc"> <span data-i18n="Application: Discord's local API, with your own Discord application">Application: Discord's local API, with your own Discord application</span></label>
+    </div>
+
+    <div id="method-shortcut" class="group">
+      <p data-i18n="In Discord: User Settings › Keybinds › Add a Keybind, choose the action below, click the keybind field, then use “Send the shortcut in 3 s”.">In Discord: User Settings › Keybinds › Add a Keybind, choose the action below, click the keybind field, then use “Send the shortcut in 3 s”.</p>
+      <div class="grid">
+        <label for="action" data-i18n="Discord action:">Discord action:</label>
+        <select id="action">
+          <option value="toggle_mute" data-i18n="Toggle Mute">Toggle Mute</option>
+          <option value="push_to_mute" data-i18n="Push to Mute">Push to Mute</option>
+        </select>
+        <span data-i18n="Shortcut:">Shortcut:</span>
+        <div class="row">
+          <div class="chips" id="shortcut"></div>
+          <button id="record_shortcut" data-i18n="Change">Change</button>
+        </div>
+        <span></span>
+        <span id="shortcut_hint" class="note" hidden data-i18n="Press the shortcut, then release it… Escape cancels.">Press the shortcut, then release it… Escape cancels.</span>
+      </div>
+      <div class="row"><button id="send_shortcut" data-i18n="Send the shortcut in 3 s">Send the shortcut in 3 s</button><span id="send_result" class="note"></span></div>
+      <p class="note" data-i18n="F13 to F24 are keys no game uses: sending them has no effect in the game.">F13 to F24 are keys no game uses: sending them has no effect in the game.</p>
+      <p class="note" id="linux_shortcut" hidden data-i18n="On Linux, Discord shortcuts only work in an X11 session. Under Wayland, use the Application method.">On Linux, Discord shortcuts only work in an X11 session. Under Wayland, use the Application method.</p>
+    </div>
+
+    <div id="method-rpc" class="group">
+      <p class="row"><span data-i18n="Status:">Status:</span> <strong id="discord_state"></strong></p>
+      <p data-i18n="Discord only lets an application control your microphone if you created it yourself. It takes two minutes:">Discord only lets an application control your microphone if you created it yourself. It takes two minutes:</p>
+      <div class="steps">
+        <p data-i18n="1. Open the Discord Developer Portal and click “New Application”.">1. Open the Discord Developer Portal and click “New Application”.</p>
+        <p data-i18n="2. Copy the Application ID (Client ID) from “General Information”.">2. Copy the Application ID (Client ID) from “General Information”.</p>
+        <p data-i18n="3. In “OAuth2”, reset and copy the Client Secret.">3. In “OAuth2”, reset and copy the Client Secret.</p>
+        <p data-i18n="4. In “OAuth2 › Redirects”, add the redirect URL below, then save.">4. In “OAuth2 › Redirects”, add the redirect URL below, then save.</p>
+        <p data-i18n="5. Paste the Client ID and Client Secret here, click “Check”, then “Save”.">5. Paste the Client ID and Client Secret here, click “Check”, then “Save”.</p>
+      </div>
+      <button id="portal" data-i18n="Open Discord Developer Portal">Open Discord Developer Portal</button>
+      <div class="grid">
+        <label for="redirect" data-i18n="Redirect URL:">Redirect URL:</label>
+        <div class="row"><input id="redirect" readonly><button id="copy" data-i18n="Copy">Copy</button></div>
+        <label for="client_id" data-i18n="Client ID:">Client ID:</label>
+        <input id="client_id" autocomplete="off" spellcheck="false">
+        <label for="client_secret" data-i18n="Client Secret:">Client Secret:</label>
+        <div class="row"><input id="client_secret" type="password" autocomplete="off" spellcheck="false">
+          <label class="inline"><input type="checkbox" id="show_secret"> <span data-i18n="Show">Show</span></label></div>
+        <label for="oauth_port" data-i18n="Callback port:">Callback port:</label>
+        <input id="oauth_port" type="number" min="1024" max="65535" class="short">
+      </div>
+      <div class="row">
+        <button id="check" data-i18n="Check">Check</button><span id="check_result" class="note"></span>
+        <span class="spacer"></span>
+        <button id="reauthorize" data-i18n="Authorize Discord again">Authorize Discord again</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-general" class="page" hidden>
+    <div class="grid">
+      <label for="language" data-i18n="Language:">Language:</label>
+      <select id="language"></select>
+    </div>
+    <label class="inline"><input type="checkbox" id="autostart"> <span id="autostart_label">Start with Windows</span></label>
+    <div class="row"><button id="open_log" data-i18n="Open log folder">Open log folder</button><span class="spacer"></span><span id="version" class="note"></span></div>
+  </section>
+</main>
+
+<footer id="footer" hidden>
+  <span id="error" class="error" role="alert"></span>
+  <button id="cancel" data-i18n="Cancel">Cancel</button>
+  <button id="save" class="primary" data-i18n="Save">Save</button>
+</footer>
+<script src="settings.js"></script>
+</body>
+</html>
