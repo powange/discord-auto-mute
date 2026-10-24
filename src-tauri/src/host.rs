@@ -109,10 +109,19 @@ pub fn show_notification(app: &AppHandle, title: &str, body: &str) {
 pub fn start(app: AppHandle, settings: Settings) -> Host {
     let (tx, rx) = mpsc::unbounded_channel();
     let key_tx = tx.clone();
-    let input_error = platform::listen(Box::new(move |key, down| {
-        let _ = key_tx.send(Event::Key(key, down));
-    }))
-    .err();
+    // Debug builds can simulate a game in the foreground, without reading the keys
+    // (screenshots): DAM_DEMO=SoTGame.exe.
+    let demo = std::env::var("DAM_DEMO")
+        .ok()
+        .filter(|_| cfg!(debug_assertions));
+    let input_error = if demo.is_some() {
+        None
+    } else {
+        platform::listen(Box::new(move |key, down| {
+            let _ = key_tx.send(Event::Key(key, down));
+        }))
+        .err()
+    };
     if let Some(e) = &input_error {
         log::error!("Keys cannot be read: {e}");
     }
@@ -131,7 +140,10 @@ pub fn start(app: AppHandle, settings: Settings) -> Host {
         .spawn(move || {
             let mut last = None;
             loop {
-                let now = platform::foreground_executable();
+                let now = match &demo {
+                    Some(exe) => Some(exe.clone()),
+                    None => platform::foreground_executable(),
+                };
                 if now != last {
                     log::debug!("Foreground: {now:?}");
                     if foreground_tx.send(Event::Foreground(now.clone())).is_err() {

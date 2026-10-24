@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord Auto-Mute</title>
+<meta name="description" content="Free app that mutes your Discord microphone while you talk in a game's voice chat, so your friends don't hear you twice. Windows and Linux.">
+<meta property="og:title" content="Discord Auto-Mute">
+<meta property="og:description" content="Talk in the game, stay silent on Discord. Free and open source.">
+<meta property="og:image" content="https://powange.github.io/discord-auto-mute/img/icon.png">
+<link rel="icon" href="img/icon.png">
+<style>
+:root {
+  --bg: #f5f6fa; --surface: #ffffff; --fg: #181a22; --muted: #5a5f70; --line: #dfe2ea;
+  --accent: #5865f2; --accent-fg: #ffffff; --green: #22a052; --red: #ed4245;
+  --hero-1: #1e2142; --hero-2: #4752c4; --code-bg: #eef0f5;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121319; --surface: #1b1d26; --fg: #e8e9ef; --muted: #a3a7b6; --line: #2d303c;
+    --accent: #8f97ff; --accent-fg: #121319; --green: #4cc97b; --red: #ff6b6e;
+    --hero-1: #15172e; --hero-2: #353c96; --code-bg: #262934;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+/* Only the texts of the chosen language are shown. */
+html[data-lang="en"] [lang="fr"], html[data-lang="fr"] [lang="en"] { display: none !important; }
+a { color: var(--accent); }
+img { max-width: 100%; height: auto; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 0.88em; background: var(--code-bg); padding: 0.1em 0.4em; border-radius: 4px; overflow-wrap: anywhere; }
+h1, h2, h3 { line-height: 1.2; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.container { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: #fff; text-decoration: none; }
+.brand img { width: 32px; height: 32px; }
+.bar-links { display: flex; align-items: center; gap: 8px; }
+.bar-links a, .lang-switch button { color: #fff; text-decoration: none; font: inherit; font-size: 0.9rem;
+  border: 1px solid rgba(255,255,255,0.35); background: transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch button[aria-pressed="true"] { background: #fff; color: var(--hero-1); border-color: #fff; }
+
+.hero { background: linear-gradient(135deg, var(--hero-1), var(--hero-2)); color: #fff; padding-bottom: 72px; }
+.hero-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding-top: 40px; }
+@media (max-width: 820px) { .hero-body { grid-template-columns: minmax(0, 1fr); gap: 32px; } .bar-links a.hide-small { display: none; } }
+.hero h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.01em; }
+.hero .lede { margin-top: 16px; font-size: 1.15rem; color: rgba(255,255,255,0.85); max-width: 34em; }
+.cta { margin-top: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.download { display: inline-flex; align-items: center; gap: 12px; background: var(--green); color: #fff; text-decoration: none;
+  font-weight: 700; font-size: 1.15rem; padding: 14px 26px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.25); }
+.download:hover { filter: brightness(1.08); }
+.download svg { width: 22px; height: 22px; flex: none; }
+.cta small { color: rgba(255,255,255,0.75); font-size: 0.9rem; }
+.cta small a { color: #fff; }
+.hero-shot { background: var(--surface); border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.35); }
+.hero-shot img { display: block; }
+
+section { padding: 64px 0; }
+section + section { border-top: 1px solid var(--line); }
+.eyebrow { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; color: var(--accent); }
+section h2 { font-size: clamp(1.6rem, 3.5vw, 2.1rem); margin-top: 6px; }
+section .intro { color: var(--muted); margin-top: 10px; max-width: 42em; }
+
+.problem { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cards { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+.card .emoji { font-size: 1.6rem; line-height: 1; }
+.card h3 { font-size: 1.08rem; }
+.card p { color: var(--muted); font-size: 0.97rem; }
+.card.before { border-color: var(--red); }
+.card.after { border-color: var(--green); }
+
+.steps { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; counter-reset: step; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; position: relative; padding-left: 64px; }
+.step::before { counter-increment: step; content: counter(step); position: absolute; left: 20px; top: 20px; width: 30px; height: 30px;
+  border-radius: 50%; background: var(--accent); color: var(--accent-fg); font-weight: 800; display: grid; place-items: center; }
+.step h3 { font-size: 1.05rem; }
+.step p { color: var(--muted); font-size: 0.97rem; margin-top: 6px; }
+
+.states { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.state { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.state img { width: 40px; height: 40px; flex: none; }
+.state b { display: block; font-size: 0.97rem; }
+.state span { color: var(--muted); font-size: 0.88rem; }
+
+.shots { margin-top: 28px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.shots figure { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.shots img { display: block; }
+.shots figcaption { padding: 10px 14px; color: var(--muted); font-size: 0.92rem; }
+
+.games { margin-top: 24px; columns: 3 220px; column-gap: 24px; padding: 0; list-style: none; }
+.games li { break-inside: avoid; padding: 4px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; }
+.games li span { color: var(--muted); white-space: nowrap; }
+.games li .unsure { color: var(--muted); font-style: italic; }
+.legend { margin-top: 12px; color: var(--muted); font-size: 0.9rem; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin-top: 12px; }
+details summary { cursor: pointer; font-weight: 600; }
+details p, details ul { margin-top: 10px; color: var(--muted); }
+.faq { margin-top: 24px; max-width: 52em; }
+
+footer { padding: 32px 0 48px; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); }
+footer .container { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="container">
+    <nav class="bar">
+      <a class="brand" href="#"><img src="img/icon.png" alt="">Discord Auto-Mute</a>
+      <div class="bar-links">
+        <a class="hide-small" href="https://github.com/powange/discord-auto-mute">GitHub</a>
+        <div class="lang-switch" role="group" aria-label="Language">
+          <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-set-lang="fr" aria-pressed="false">FR</button>
+        </div>
+      </div>
+    </nav>
+    <div class="hero-body">
+      <div>
+        <h1 lang="en">Talk in the game.<br>Stay silent on Discord.</h1>
+        <h1 lang="fr">Parlez dans le jeu.<br>Restez muet sur Discord.</h1>
+        <p class="lede" lang="en">Discord Auto-Mute mutes your Discord microphone while you hold your game's voice key, so the friends you play with don't hear you twice.</p>
+        <p class="lede" lang="fr">Discord Auto-Mute coupe votre micro Discord pendant que vous maintenez la touche de chat vocal du jeu : vos amis ne vous entendent plus en double.</p>
+        <div class="cta">
+          <a class="download" href="https://github.com/powange/discord-auto-mute/releases/latest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M4 20h16"/></svg>
+            <span lang="en">Download for free</span><span lang="fr">Télécharger gratuitement</span>
+          </a>
+          <small lang="en">Windows 10/11 and Linux · Free and open source (MIT) · Updates itself</small>
+          <small lang="fr">Windows 10/11 et Linux · Gratuit et open source (MIT) · Se met à jour tout seul</small>
+        </div>
+      </div>
+      <div class="hero-shot">
+        <img lang="en" src="img/settings-profiles-en.png" alt="Settings window: the Sea of Thieves profile with Left Alt as voice key" width="820" height="680">
+        <img lang="fr" src="img/settings-profiles-fr.png" alt="Fenêtre de réglages : le profil Sea of Thieves avec Alt gauche comme touche de chat vocal" width="820" height="680">
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="container">
+      <p class="eyebrow" lang="en">The problem</p><p class="eyebrow" lang="fr">Le problème</p>
+      <h2 lang="en">Same friends, two voice chats</h2>
+      <h2 lang="fr">Les mêmes amis, deux chats vocaux</h2>
+      <div class="problem">
+        <div class="card before">
+          <span class="emoji">🔁</span>
+          <h3 lang="en">Without it</h3><h3 lang="fr">Sans l'application</h3>
+          <p lang="en">You talk in the game's proximity or team chat, and Discord sends your voice too: your friends hear you twice, with a delay, and everyone else on Discord hears your in-game conversation.</p>
+          <p lang="fr">Vous parlez dans le chat de proximité ou d'équipe du jeu, et Discord transmet aussi votre voix : vos amis vous entendent deux fois, avec un décalage, et tout le salon Discord entend votre conversation en jeu.</p>
+        </div>
+        <div class="card after">
+          <span class="emoji">✅</span>
+          <h3 lang="en">With Discord Auto-Mute</h3><h3 lang="fr">Avec Discord Auto-Mute</h3>
+          <p lang="en">Hold the game's voice key: your Discord microphone is muted for that time. Release it: Discord is back. Nothing to think about.</p>
+          <p lang="fr">Maintenez la touche de chat vocal du jeu : votre micro Discord est coupé pendant ce temps. Relâchez-la : Discord revient. Plus rien à penser.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <p class="eyebrow" lang="en">Getting started</p><p class="eyebrow" lang="fr">Démarrage</p>
+      <h2 lang="en">Set up in three steps</h2>
+      <h2 lang="fr">Prêt en trois étapes</h2>
+      <div class="steps">
+        <div class="step">
+          <h3 lang="en">Install and add your games</h3><h3 lang="fr">Installez et ajoutez vos jeux</h3>
+          <p lang="en">Pick your games among 50 presets: their voice key is already set. A game is missing? Create a profile and choose its key.</p>
+          <p lang="fr">Choisissez vos jeux parmi 50 préréglages : leur touche de chat vocal est déjà renseignée. Un jeu manque ? Créez un profil et choisissez sa touche.</p>
+        </div>
+        <div class="step">
+          <h3 lang="en">Connect Discord</h3><h3 lang="fr">Reliez Discord</h3>
+          <p lang="en">Add a “Toggle Mute” keybind in Discord: the app types it for you (F13, a key no game uses). Or use Discord's local API with your own Discord application.</p>
+          <p lang="fr">Ajoutez un raccourci « Activer/désactiver le micro » dans Discord : l'application le tape pour vous (F13, une touche qu'aucun jeu n'utilise). Ou utilisez l'API locale de Discord avec votre propre application Discord.</p>
+        </div>
+        <div class="step">
+          <h3 lang="en">Play</h3><h3 lang="fr">Jouez</h3>
+          <p lang="en">The app stays in the system tray. A profile only applies while its game is in the foreground: typing a T in a browser mutes nothing.</p>
+          <p lang="fr">L'application reste dans la barre système. Un profil ne s'applique que quand son jeu est au premier plan : taper un T dans un navigateur ne mute rien.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <p class="eyebrow" lang="en">Features</p><p class="eyebrow" lang="fr">Fonctionnalités</p>
+      <h2 lang="en">Made for the way you play</h2>
+      <h2 lang="fr">Pensé pour votre façon de jouer</h2>
+      <div class="cards">
+        <div class="card"><span class="emoji">🎮</span>
+          <h3 lang="en">One profile per game</h3><h3 lang="fr">Un profil par jeu</h3>
+          <p lang="en">Several voice keys per game (team, squad, proximity), keyboard keys or mouse buttons 4 and 5.</p>
+          <p lang="fr">Plusieurs touches par jeu (équipe, escouade, proximité), touches du clavier ou boutons de souris 4 et 5.</p></div>
+        <div class="card"><span class="emoji">⏯️</span>
+          <h3 lang="en">Hold or toggle</h3><h3 lang="fr">Maintenu ou bascule</h3>
+          <p lang="en">Muted while the key is held, or each press mutes and unmutes: like the game does.</p>
+          <p lang="fr">Muté tant que la touche est enfoncée, ou chaque appui mute et réactive : comme le jeu.</p></div>
+        <div class="card"><span class="emoji">🛡️</span>
+          <h3 lang="en">Never stuck muted</h3><h3 lang="fr">Jamais coincé en muet</h3>
+          <p lang="en">Alt+Tab, pause or quit gives Discord back. A mute you set yourself in Discord is left alone.</p>
+          <p lang="fr">Alt+Tab, pause ou fermeture rendent la parole à Discord. Un mute que vous avez mis vous-même dans Discord n'est pas touché.</p></div>
+        <div class="card"><span class="emoji">🌍</span>
+          <h3 lang="en">English and French</h3><h3 lang="fr">Anglais et français</h3>
+          <p lang="en">In your system's language by default; more languages can be added.</p>
+          <p lang="fr">Dans la langue du système par défaut ; d'autres langues peuvent être ajoutées.</p></div>
+        <div class="card"><span class="emoji">🔄</span>
+          <h3 lang="en">Updates itself</h3><h3 lang="fr">Mises à jour automatiques</h3>
+          <p lang="en">New versions are offered in the tray menu and installed after your confirmation, signed with the project's key.</p>
+          <p lang="fr">Les nouvelles versions sont proposées dans le menu de l'icône et installées après votre accord, signées avec la clé du projet.</p></div>
+        <div class="card"><span class="emoji">🐧</span>
+          <h3 lang="en">Windows and Linux</h3><h3 lang="fr">Windows et Linux</h3>
+          <p lang="en">Games under Proton are recognised by their Windows executable.</p>
+          <p lang="fr">Les jeux sous Proton sont reconnus par leur exécutable Windows.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <p class="eyebrow" lang="en">In the tray</p><p class="eyebrow" lang="fr">Dans la barre système</p>
+      <h2 lang="en">See at a glance what Discord hears</h2>
+      <h2 lang="fr">Voyez d'un coup d'œil ce que Discord entend</h2>
+      <div class="states">
+        <div class="state"><img src="img/ready.png" alt=""><div><b lang="en">Ready</b><b lang="fr">Prêt</b><span lang="en">A game profile is active</span><span lang="fr">Un profil de jeu est actif</span></div></div>
+        <div class="state"><img src="img/muting.png" alt=""><div><b lang="en">Muted</b><b lang="fr">Muté</b><span lang="en">You are talking in the game</span><span lang="fr">Vous parlez dans le jeu</span></div></div>
+        <div class="state"><img src="img/idle.png" alt=""><div><b lang="en">Idle</b><b lang="fr">Inactif</b><span lang="en">No game in the foreground</span><span lang="fr">Aucun jeu au premier plan</span></div></div>
+        <div class="state"><img src="img/paused.png" alt=""><div><b lang="en">Paused</b><b lang="fr">En pause</b><span lang="en">From the tray menu</span><span lang="fr">Depuis le menu de l'icône</span></div></div>
+        <div class="state"><img src="img/warning.png" alt=""><div><b lang="en">Problem</b><b lang="fr">Problème</b><span lang="en">Hover the icon to see why</span><span lang="fr">Survolez l'icône pour voir pourquoi</span></div></div>
+      </div>
+      <div class="shots">
+        <figure>
+          <img lang="en" src="img/settings-discord-en.png" alt="Discord tab: keyboard shortcut method" width="820" height="680" loading="lazy">
+          <img lang="fr" src="img/settings-discord-fr.png" alt="Onglet Discord : méthode du raccourci clavier" width="820" height="680" loading="lazy">
+          <figcaption lang="en">The Discord tab: the app types the shortcut for you while Discord records it.</figcaption>
+          <figcaption lang="fr">L'onglet Discord : l'application tape le raccourci pour vous pendant que Discord l'enregistre.</figcaption>
+        </figure>
+        <figure>
+          <img lang="en" src="img/settings-profiles-en.png" alt="Profiles tab" width="820" height="680" loading="lazy">
+          <img lang="fr" src="img/settings-profiles-fr.png" alt="Onglet Profils" width="820" height="680" loading="lazy">
+          <figcaption lang="en">Profiles: presets stay editable, and the app warns when a game needs push-to-talk enabled.</figcaption>
+          <figcaption lang="fr">Les profils : les préréglages restent modifiables, et l'application prévient quand un jeu demande d'activer le push-to-talk.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="games">
+    <div class="container">
+      <p class="eyebrow" lang="en">Presets</p><p class="eyebrow" lang="fr">Préréglages</p>
+      <h2 lang="en">50 games ready to go</h2>
+      <h2 lang="fr">50 jeux prêts à l'emploi</h2>
+      <p class="intro" lang="en">The most played multiplayer games with their own voice chat, with their default voice key. Know a key we don't? <a href="https://github.com/powange/discord-auto-mute/issues">Tell us</a>.</p>
+      <p class="intro" lang="fr">Les jeux multijoueurs les plus joués qui ont leur propre chat vocal, avec leur touche par défaut. Vous connaissez une touche qui manque ? <a href="https://github.com/powange/discord-auto-mute/issues">Dites-le-nous</a>.</p>
+      <!-- games:start (generated by tools/update_site.py) -->
+      <ul class="games" lang="en">
+        <li>Apex Legends <span>T</span></li>
+        <li>Arc Raiders <span>Z, B</span></li>
+        <li>Arena Breakout: Infinite <span class="unsure">Y</span></li>
+        <li>Arma 3 <span>Caps Lock</span></li>
+        <li>Arma Reforger <span class="unsure">T, Caps Lock</span></li>
+        <li>Battlefield 6 <span class="unsure">Caps Lock</span></li>
+        <li>Call of Duty: Warzone / Black Ops 7 <span class="unsure">Z</span></li>
+        <li>Content Warning <span>V · open mic</span></li>
+        <li>Counter-Strike 2 <span>K</span></li>
+        <li>Dark and Darker <span class="unsure">B</span></li>
+        <li>DayZ <span>Caps Lock</span></li>
+        <li>Deadlock <span class="unsure">T</span></li>
+        <li>Deep Rock Galactic <span>Z</span></li>
+        <li>Delta Force <span class="unsure">T</span></li>
+        <li>Destiny 2 <span class="unsure">T · open mic</span></li>
+        <li>Dota 2 <span>G</span></li>
+        <li>Escape from Tarkov <span>K</span></li>
+        <li>FiveM (GTA RP) <span class="unsure">N, Left Alt</span></li>
+        <li>Fortnite <span class="unsure">no key · open mic</span></li>
+        <li>Garry&#x27;s Mod <span>X, Mouse 5</span></li>
+        <li>GTA Online <span>N</span></li>
+        <li>Hell Let Loose <span>C, V, X</span></li>
+        <li>Helldivers 2 <span class="unsure">Caps Lock</span></li>
+        <li>Hunt: Showdown 1896 <span class="unsure">Caps Lock</span></li>
+        <li>Insurgency: Sandstorm <span class="unsure">K</span></li>
+        <li>Left 4 Dead 2 <span>C</span></li>
+        <li>Lethal Company <span>T</span></li>
+        <li>Lockdown Protocol <span class="unsure">no key · open mic</span></li>
+        <li>Marathon <span>Y, T</span></li>
+        <li>Marvel Rivals <span class="unsure">no key · open mic</span></li>
+        <li>Naraka: Bladepoint <span class="unsure">no key</span></li>
+        <li>Overwatch 2 <span class="unsure">`</span></li>
+        <li>Payday 2 <span class="unsure">`</span></li>
+        <li>PEAK <span>V · open mic</span></li>
+        <li>Phasmophobia <span>V, B</span></li>
+        <li>PUBG: Battlegrounds <span class="unsure">T</span></li>
+        <li>R.E.P.O. <span>V</span></li>
+        <li>Rainbow Six Siege X <span class="unsure">U</span></li>
+        <li>Ready or Not <span class="unsure">no key</span></li>
+        <li>Roblox <span class="unsure">no key · open mic</span></li>
+        <li>Rust <span>V</span></li>
+        <li>Sea of Thieves <span>Left Alt · open mic</span></li>
+        <li>Squad <span class="unsure">V, B, G</span></li>
+        <li>Team Fortress 2 <span>V</span></li>
+        <li>The Finals <span class="unsure">Z</span></li>
+        <li>Valorant <span>V, U</span></li>
+        <li>War Thunder <span class="unsure">Right Ctrl</span></li>
+        <li>Warframe <span>C</span></li>
+        <li>World of Tanks <span>Q</span></li>
+        <li>World of Warcraft <span>`</span></li>
+      </ul>
+      <ul class="games" lang="fr">
+        <li>Apex Legends <span>T</span></li>
+        <li>Arc Raiders <span>Z, B</span></li>
+        <li>Arena Breakout: Infinite <span class="unsure">Y</span></li>
+        <li>Arma 3 <span>Verr. Maj</span></li>
+        <li>Arma Reforger <span class="unsure">T, Verr. Maj</span></li>
+        <li>Battlefield 6 <span class="unsure">Verr. Maj</span></li>
+        <li>Call of Duty: Warzone / Black Ops 7 <span class="unsure">Z</span></li>
+        <li>Content Warning <span>V · micro ouvert</span></li>
+        <li>Counter-Strike 2 <span>K</span></li>
+        <li>Dark and Darker <span class="unsure">B</span></li>
+        <li>DayZ <span>Verr. Maj</span></li>
+        <li>Deadlock <span class="unsure">T</span></li>
+        <li>Deep Rock Galactic <span>Z</span></li>
+        <li>Delta Force <span class="unsure">T</span></li>
+        <li>Destiny 2 <span class="unsure">T · micro ouvert</span></li>
+        <li>Dota 2 <span>G</span></li>
+        <li>Escape from Tarkov <span>K</span></li>
+        <li>FiveM (GTA RP) <span class="unsure">N, Alt gauche</span></li>
+        <li>Fortnite <span class="unsure">pas de touche · micro ouvert</span></li>
+        <li>Garry&#x27;s Mod <span>X, Souris 5</span></li>
+        <li>GTA Online <span>N</span></li>
+        <li>Hell Let Loose <span>C, V, X</span></li>
+        <li>Helldivers 2 <span class="unsure">Verr. Maj</span></li>
+        <li>Hunt: Showdown 1896 <span class="unsure">Verr. Maj</span></li>
+        <li>Insurgency: Sandstorm <span class="unsure">K</span></li>
+        <li>Left 4 Dead 2 <span>C</span></li>
+        <li>Lethal Company <span>T</span></li>
+        <li>Lockdown Protocol <span class="unsure">pas de touche · micro ouvert</span></li>
+        <li>Marathon <span>Y, T</span></li>
+        <li>Marvel Rivals <span class="unsure">pas de touche · micro ouvert</span></li>
+        <li>Naraka: Bladepoint <span class="unsure">pas de touche</span></li>
+        <li>Overwatch 2 <span class="unsure">²</span></li>
+        <li>Payday 2 <span class="unsure">²</span></li>
+        <li>PEAK <span>V · micro ouvert</span></li>
+        <li>Phasmophobia <span>V, B</span></li>
+        <li>PUBG: Battlegrounds <span class="unsure">T</span></li>
+        <li>R.E.P.O. <span>V</span></li>
+        <li>Rainbow Six Siege X <span class="unsure">U</span></li>
+        <li>Ready or Not <span class="unsure">pas de touche</span></li>
+        <li>Roblox <span class="unsure">pas de touche · micro ouvert</span></li>
+        <li>Rust <span>V</span></li>
+        <li>Sea of Thieves <span>Alt gauche · micro ouvert</span></li>
+        <li>Squad <span class="unsure">V, B, G</span></li>
+        <li>Team Fortress 2 <span>V</span></li>
+        <li>The Finals <span class="unsure">Z</span></li>
+        <li>Valorant <span>V, U</span></li>
+        <li>War Thunder <span class="unsure">Ctrl droit</span></li>
+        <li>Warframe <span>C</span></li>
+        <li>World of Tanks <span>Q</span></li>
+        <li>World of Warcraft <span>²</span></li>
+      </ul>
+      <!-- games:end -->
+      <p class="legend" lang="en">In italics: to be checked in the game. “open mic”: enable push-to-talk in the game's audio settings first.</p>
+      <p class="legend" lang="fr">En italique : à vérifier en jeu. « micro ouvert » : activez d'abord le push-to-talk dans les réglages audio du jeu.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="container">
+      <p class="eyebrow">FAQ</p>
+      <h2 lang="en">Questions</h2><h2 lang="fr">Questions</h2>
+      <div class="faq">
+        <details>
+          <summary lang="en">Is it allowed by Discord and by anti-cheats?</summary>
+          <summary lang="fr">Est-ce autorisé par Discord et par les anti-triches ?</summary>
+          <p lang="en">The app only listens to your keys (it never blocks or changes them), presses a Discord keybind or uses Discord's official local API. It does not touch the game's memory or files. We cannot speak for every anti-cheat, though: if in doubt, ask the game's support.</p>
+          <p lang="fr">L'application écoute seulement vos touches (sans jamais les bloquer ni les modifier), puis appuie sur un raccourci Discord ou utilise l'API locale officielle de Discord. Elle ne touche ni à la mémoire ni aux fichiers du jeu. Nous ne pouvons pas répondre pour chaque anti-triche : en cas de doute, demandez au support du jeu.</p>
+        </details>
+        <details>
+          <summary lang="en">Nothing happens in one particular game</summary>
+          <summary lang="fr">Rien ne se passe dans un jeu en particulier</summary>
+          <ul lang="en"><li>Check that the profile is enabled and that its executable is the one in the foreground: start the game, open the settings and pick it from the suggestions.</li><li>Some games use an open microphone by default: enable push-to-talk in the game's audio settings.</li><li>A game started as administrator hides its keys from normal applications: run Discord Auto-Mute as administrator too.</li></ul>
+          <ul lang="fr"><li>Vérifiez que le profil est activé et que son exécutable est bien celui au premier plan : lancez le jeu, ouvrez les réglages et choisissez-le dans les suggestions.</li><li>Certains jeux sont en micro ouvert par défaut : activez le push-to-talk dans leurs réglages audio.</li><li>Un jeu lancé en administrateur cache ses touches aux applications normales : lancez aussi Discord Auto-Mute en administrateur.</li></ul>
+        </details>
+        <details>
+          <summary lang="en">Windows says “Windows protected your PC”</summary>
+          <summary lang="fr">Windows affiche « Windows a protégé votre ordinateur »</summary>
+          <p lang="en">The installer is not code signed yet. On the first download, click <b>More info › Run anyway</b>. Updates installed from the app are checked against the project's update key.</p>
+          <p lang="fr">L'installeur n'est pas encore signé. Au premier téléchargement, cliquez sur <b>Informations complémentaires › Exécuter quand même</b>. Les mises à jour installées depuis l'application sont vérifiées avec la clé du projet.</p>
+        </details>
+        <details>
+          <summary lang="en">Linux: the app says it cannot read the keyboard</summary>
+          <summary lang="fr">Linux : l'application dit ne pas pouvoir lire le clavier</summary>
+          <p lang="en">Keys are read from <code>/dev/input</code>, which works under X11 and Wayland. Run <code>sudo usermod -aG input $USER</code>, then log out and back in. Discord keybinds only work in an X11 session: under Wayland, use the Application method.</p>
+          <p lang="fr">Les touches sont lues dans <code>/dev/input</code>, ce qui fonctionne sous X11 et Wayland. Exécutez <code>sudo usermod -aG input $USER</code>, puis fermez et rouvrez votre session. Les raccourcis de Discord ne fonctionnent que dans une session X11 : sous Wayland, utilisez la méthode Application.</p>
+        </details>
+        <details>
+          <summary lang="en">What data does the app send?</summary>
+          <summary lang="fr">Quelles données l'application envoie-t-elle ?</summary>
+          <p lang="en">None about you. Your keys are only used on your computer. The app talks to the Discord client on your computer, to Discord's servers only for the authorization of the Application method, and to GitHub once a day to look for updates (can be turned off).</p>
+          <p lang="fr">Aucune donnée vous concernant. Vos touches ne sont utilisées que sur votre ordinateur. L'application parle au client Discord de votre ordinateur, aux serveurs de Discord seulement pour l'autorisation de la méthode Application, et à GitHub une fois par jour pour chercher les mises à jour (désactivable).</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="container">
+    <span lang="en">Discord Auto-Mute is not affiliated with Discord Inc.</span>
+    <span lang="fr">Discord Auto-Mute n'est pas affilié à Discord Inc.</span>
+    <span><a href="https://github.com/powange/discord-auto-mute">GitHub</a> · MIT</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const set = (lang) => {
+    root.dataset.lang = lang;
+    root.lang = lang;
+    for (const b of document.querySelectorAll("[data-set-lang]")) b.setAttribute("aria-pressed", b.dataset.setLang === lang);
+    try { localStorage.setItem("lang", lang); } catch {}
+  };
+  let saved = null;
+  try { saved = localStorage.getItem("lang"); } catch {}
+  set(saved || ((navigator.language || "en").toLowerCase().startsWith("fr") ? "fr" : "en"));
+  for (const b of document.querySelectorAll("[data-set-lang]")) b.addEventListener("click", () => set(b.dataset.setLang));
+})();
+</script>
+</body>
+</html>

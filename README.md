@@ -19,7 +19,7 @@ A tray application for Windows and Linux: each game has a profile with its voice
 
 ## Installation
 
-Download the installer from the [releases](https://github.com/powange/discord-auto-mute/releases).
+Download the installer from the [releases](https://github.com/powange/discord-auto-mute/releases), or see the [website](https://powange.github.io/discord-auto-mute/).
 
 On Linux, the keys are read from `/dev/input`: add your user to the `input` group (`sudo usermod -aG input $USER`, then log out and back in). The game in the foreground is found through X11 (games under XWayland and Proton included). Discord shortcuts only work in an X11 session: under Wayland, use the Application method.
 
