@@ -332,6 +332,7 @@ function fillForms() {
   $("language").replaceChildren(...data.languages.map(([code, label]) =>
     el("option", { value: code, textContent: code === "auto" ? t(label) : label, selected: code === settings.language })));
   $("autostart").checked = data.autostart;
+  $("check_updates").checked = settings.check_updates;
   showError("error", "");
 }
 
@@ -345,6 +346,7 @@ async function save() {
     client_secret: $("client_secret").value.trim(),
     oauth_port: Number($("oauth_port").value) || 0,
     autostart: $("autostart").checked,
+    check_updates: $("check_updates").checked,
   };
   try {
     await invoke("save_general", { payload });
@@ -476,6 +478,7 @@ $("check").addEventListener("click", async () => {
 });
 $("reauthorize").addEventListener("click", () => invoke("reauthorize"));
 $("open_log").addEventListener("click", () => invoke("open_log_folder"));
+$("check_now").addEventListener("click", () => invoke("check_updates"));
 $("save").addEventListener("click", save);
 $("cancel").addEventListener("click", fillForms);
 

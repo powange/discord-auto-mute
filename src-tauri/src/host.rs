@@ -46,6 +46,8 @@ pub struct Shared {
     pub input_error: Option<String>,
     /// Executables recently in the foreground, newest first (to create profiles).
     pub recent: Vec<String>,
+    /// Version of an available update (tray menu entry).
+    pub update: Option<String>,
 }
 
 pub struct Host {
@@ -60,6 +62,10 @@ impl Host {
 
     pub fn snapshot(&self) -> Shared {
         self.shared.lock().unwrap().clone()
+    }
+
+    pub fn set_update(&self, version: Option<String>) {
+        self.shared.lock().unwrap().update = version;
     }
 
     /// Unmutes Discord if the application muted it; waits at most one second.
@@ -96,6 +102,7 @@ pub fn start(app: AppHandle, settings: Settings) -> Host {
         discord: DiscordState::Shortcut,
         input_error,
         recent: Vec::new(),
+        update: None,
     }));
 
     let foreground_tx = tx.clone();

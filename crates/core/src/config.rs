@@ -96,6 +96,11 @@ pub fn settings_file() -> PathBuf {
     data_dir().join("settings.json")
 }
 
+/// What the application remembers between runs (not settings): update checks…
+pub fn state_file() -> PathBuf {
+    data_dir().join("state.json")
+}
+
 pub fn log_dir() -> PathBuf {
     let dir = data_dir().join("logs");
     let _ = std::fs::create_dir_all(&dir);
@@ -111,6 +116,8 @@ pub struct Settings {
     pub method: MuteMethod,
     pub shortcut: Shortcut,
     pub rpc: Rpc,
+    /// Look for a new version once a day (GitHub releases).
+    pub check_updates: bool,
     pub profiles: Vec<Profile>,
 }
 
@@ -122,6 +129,7 @@ impl Default for Settings {
             method: MuteMethod::default(),
             shortcut: Shortcut::default(),
             rpc: Rpc::default(),
+            check_updates: true,
             profiles: Vec::new(),
         }
     }

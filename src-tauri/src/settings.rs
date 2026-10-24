@@ -195,6 +195,7 @@ pub struct GeneralPayload {
     client_secret: String,
     oauth_port: u16,
     autostart: bool,
+    check_updates: bool,
 }
 
 #[tauri::command]
@@ -251,6 +252,7 @@ pub fn save_general(app: AppHandle, payload: GeneralPayload) -> Result<(), Strin
         settings.shortcut = shortcut;
         settings.rpc.client_id = client_id;
         settings.rpc.oauth_port = payload.oauth_port;
+        settings.check_updates = payload.check_updates;
         log::info!("Settings saved");
         Ok(credentials_changed)
     })
@@ -307,6 +309,11 @@ pub fn send_shortcut(codes: Vec<String>) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+#[tauri::command]
+pub fn check_updates(app: AppHandle) {
+    crate::updates::check_now(app);
 }
 
 #[tauri::command]

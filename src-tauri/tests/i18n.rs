@@ -33,6 +33,7 @@ fn used_texts() -> BTreeSet<String> {
         "src-tauri/src/settings.rs",
         "src-tauri/src/discord.rs",
         "src-tauri/src/host.rs",
+        "src-tauri/src/updates.rs",
     ] {
         let rust = read(file);
         capture(&mut found, &rust, &format!(r"\btr\(\s*{STRING}"));

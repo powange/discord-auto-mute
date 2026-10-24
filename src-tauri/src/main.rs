@@ -6,6 +6,7 @@ mod host;
 mod platform;
 mod settings;
 mod tray;
+mod updates;
 
 use std::sync::Mutex;
 
@@ -46,6 +47,9 @@ fn main() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::PendingUpdate::default())
         .manage(settings::Store(Mutex::new(settings.clone())))
         .invoke_handler(tauri::generate_handler![
             settings::get_settings,
@@ -54,6 +58,7 @@ fn main() {
             settings::save_general,
             settings::check_credentials,
             settings::reauthorize,
+            settings::check_updates,
             settings::send_shortcut,
             settings::open_external,
             settings::open_log_folder,
@@ -63,6 +68,8 @@ fn main() {
             let handle = app.handle().clone();
             app.manage(host::start(handle.clone(), settings.clone()));
             tray::create(&handle)?;
+            updates::announce_new_version(&handle);
+            updates::start(handle.clone());
             if settings.profiles.is_empty() {
                 settings::open(&handle);
             }

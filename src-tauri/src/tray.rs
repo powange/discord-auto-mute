@@ -132,6 +132,14 @@ fn build_menu(app: &AppHandle, shared: &Shared) -> tauri::Result<Menu<tauri::Wry
         )?)?;
     }
     menu.append(&item("log", tr("Open log", &[]), true)?)?;
+    if let Some(version) = &shared.update {
+        menu.append(&item(
+            "install_update",
+            tr("Install update v{version}…", &[("version", version)]),
+            true,
+        )?)?;
+    }
+    menu.append(&item("check_updates", tr("Check for updates", &[]), true)?)?;
     menu.append(&item(
         "about",
         tr(
@@ -182,8 +190,9 @@ pub fn refresh(app: &AppHandle) {
     // Rebuild only what changed: the menu flickers on some desktops.
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
     let signature = format!(
-        "{tooltip}|{:?}|{autostart}|{}",
+        "{tooltip}|{:?}|{autostart}|{:?}|{}",
         shared.method,
+        shared.update,
         dam_core::i18n::current()
     );
     static LAST: std::sync::Mutex<(String, Option<u8>)> =
@@ -232,6 +241,8 @@ fn on_menu(app: &AppHandle, id: &str) {
             refresh(app);
         }
         "reauthorize" => host.send(Event::Reauthorize),
+        "install_update" => crate::updates::install(app.clone()),
+        "check_updates" => crate::updates::check_now(app.clone()),
         "log" => {
             let _ = app
                 .opener()

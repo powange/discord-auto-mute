@@ -36,6 +36,14 @@ cargo run -p discord-auto-mute
 
 Debug builds accept `DISCORD_AUTO_MUTE_HOME` (settings folder) and `DAM_SETTINGS_TAB` (tab opened first).
 
+## Releases and updates
+
+**Release**: bump `version` in the root `Cargo.toml`, then push a matching tag (`v0.2.0`). CI checks that the tag matches the version, runs the tests, builds the Windows setup and the Linux packages, signs them for the updater and publishes the release with `SHA256SUMS.txt` and `latest.json`.
+
+The application checks `latest.json` once a day (setting in the General tab, or "Check for updates" in the tray menu) and installs an update only after the user confirms it, on Windows and with the AppImage (the `.deb` is updated by reinstalling it).
+
+Updates are only installed when they are signed with the project's update key, whose public part is in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). The private key and its password are the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Keep a backup of both: without them, installed versions can no longer update themselves.
+
 ## License
 
 MIT
